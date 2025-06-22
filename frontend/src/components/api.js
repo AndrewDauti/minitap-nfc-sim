@@ -23,15 +23,23 @@ export const sendTap = async (cardId, amount) => {
       body: JSON.stringify({ cardId, amount }),
     });
 
-    // Make sure to return the parsed JSON
     const data = await res.json();
-
-    // Optional: log it for dev visibility
     console.log("Tap response:", data);
-
     return data; // contains cardId, amount, message
   } catch (err) {
     console.error("Error sending tap:", err);
     return { error: "Failed to tap" };
   }
 };
+
+// ✅ NEW: GET wallet balances
+export const getWallets = async () => {
+  try {
+    const res = await fetch("http://localhost:5000/api/wallets");
+    return await res.json();
+  } catch (err) {
+    console.error("Error fetching wallets:", err);
+    return [];
+  }
+};
+
