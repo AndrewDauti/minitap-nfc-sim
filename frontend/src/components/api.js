@@ -23,7 +23,6 @@ export const sendTap = async (cardId, amount) => {
       body: JSON.stringify({ cardId, amount }),
     });
 
-
     // Make sure to return the parsed JSON
     const data = await res.json();
 
@@ -36,4 +35,3 @@ export const sendTap = async (cardId, amount) => {
     return { error: "Failed to tap" };
   }
 };
-
