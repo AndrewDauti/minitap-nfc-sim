@@ -1,22 +1,27 @@
-import React, { useState } from 'react';
-import { sendTap } from './api';
-
+import React, { useState } from "react";
+import { sendTap } from "./api";
 function CardSimulator() {
-  const [cardId, setCardId] = useState('');
-  const [amount, setAmount] = useState('');
+  const [cardId, setCardId] = useState("");
+  const [amount, setAmount] = useState("");
 
   const handleTap = async () => {
-        console.log('Sending:', { cardId, amount });
+    console.log("Sending:", { cardId, amount });
 
     if (!cardId || !amount) {
-      alert('Please enter both Card ID and Amount');
+      alert("Please enter both Card ID and Amount");
       return;
     }
     try {
       const res = await sendTap(cardId, amount);
-      alert(`Tap Success: ZMW ${res.amount} for ${res.cardId}`);
+      alert(`
+✅ Tap Successful!
+
+Card: ${res.cardId}
+Debited: ZMW ${res.amount}
+New Balance: ZMW ${res.balanceAfter}
+`);
     } catch (err) {
-      alert('Tap Failed: ' + (err.message || 'Something went wrong'));
+      alert("Tap Failed: " + (err.message || "Something went wrong"));
     }
   };
 
@@ -40,4 +45,3 @@ function CardSimulator() {
 }
 
 export default CardSimulator;
-

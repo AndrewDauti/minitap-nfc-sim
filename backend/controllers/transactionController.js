@@ -1,24 +1,42 @@
-const mockData = require('../utils/mockData');
-
-let transactions = [];
+const { wallets, transactions } = require('../utils/mockData');
 
 exports.handleTap = (req, res) => {
-  const { cardId } = req.body;
+  const { cardId, amount } = req.body;
 
-  const wallet = mockData.wallets.find(w => w.cardId === cardId);
-  if (!wallet) return res.status(404).json({ message: 'Wallet not found' });
+  if (!cardId || !amount) {
+    return res.status(400).json({ error: 'Card ID and amount are required' });
+  }
 
-  const transaction = {
+  const wallet = wallets[cardId];
+
+  if (!wallet) {
+    return res.status(404).json({ error: 'Card not registered' });
+  }
+
+  const amt = parseFloat(amount);
+
+  if (wallet.balance < amt) {
+    return res.status(400).json({ error: 'Insufficient balance' });
+  }
+
+  wallet.balance -= amt;
+
+  const tx = {
     id: transactions.length + 1,
-    amount: Math.floor(Math.random() * 100), // Simulated amount
-    timestamp: new Date(),
     cardId,
+    amount: amt,
+    timestamp: new Date().toISOString(),
+    balanceAfter: wallet.balance
   };
 
-  transactions.push(transaction);
-  return res.status(200).json({ message: 'Tap recorded', transaction });
+  transactions.push(tx);
+
+  return res.json({
+    message: 'Tap successful',
+    ...tx
+  });
 };
 
 exports.getTransactions = (req, res) => {
-  res.status(200).json(transactions);
+  return res.json(transactions);
 };

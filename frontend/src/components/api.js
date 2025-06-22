@@ -23,6 +23,7 @@ export const sendTap = async (cardId, amount) => {
       body: JSON.stringify({ cardId, amount }),
     });
 
+
     // Make sure to return the parsed JSON
     const data = await res.json();
 

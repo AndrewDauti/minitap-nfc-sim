@@ -1,12 +1,17 @@
-router.post('/tap', (req, res) => {
-  const { cardId, amount } = req.body;
+const express = require('express');
+const router = express.Router();
+const controller = require('../controllers/transactionController');
 
-  // Example storage (optional)
-  // transactions.push({ id: Date.now(), cardId, amount, timestamp: new Date().toISOString() });
-
-  res.json({
-    message: 'Tap successful',
+router.post('/tap', controller.handleTap);
+router.get('/transactions', controller.getTransactions);
+router.get('/wallets', (req, res) => {
+  const { wallets } = require('../utils/mockData');
+  const result = Object.entries(wallets).map(([cardId, data]) => ({
     cardId,
-    amount,
-  });
+    balance: data.balance
+  }));
+  res.json(result);
 });
+
+
+module.exports = router;
