@@ -11,6 +11,7 @@ yarn-error.log*
 # build output
 /dist
 /build
+frontend/build/
 
 # system
 .DS_Store

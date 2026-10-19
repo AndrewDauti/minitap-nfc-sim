@@ -1,39 +1,62 @@
 const { wallets, transactions } = require('../utils/mockData');
 
+function roundMoney(value) {
+  return Math.round(value * 100) / 100;
+}
+
+function record(fields) {
+  const tx = {
+    id: transactions.length + 1,
+    timestamp: new Date().toISOString(),
+    ...fields,
+  };
+  transactions.push(tx);
+  return tx;
+}
+
 exports.handleTap = (req, res) => {
   const { cardId, amount } = req.body;
 
-  if (!cardId || !amount) {
+  if (!cardId || amount === undefined || amount === null || amount === '') {
     return res.status(400).json({ error: 'Card ID and amount are required' });
   }
 
   const wallet = wallets[cardId];
-
   if (!wallet) {
     return res.status(404).json({ error: 'Card not registered' });
   }
 
-  const amt = parseFloat(amount);
-
-  if (wallet.balance < amt) {
-    return res.status(400).json({ error: 'Insufficient balance' });
+  const amt = roundMoney(Number(amount));
+  if (!Number.isFinite(amt) || amt <= 0) {
+    return res.status(400).json({ error: 'Amount must be a positive number' });
   }
 
-  wallet.balance -= amt;
+  if (wallet.balance < amt) {
+    const tx = record({
+      cardId,
+      amount: amt,
+      balanceAfter: roundMoney(wallet.balance),
+      status: 'declined',
+      reason: 'Insufficient balance',
+    });
+    return res.status(400).json({
+      error: 'Insufficient balance',
+      ...tx,
+    });
+  }
 
-  const tx = {
-    id: transactions.length + 1,
+  wallet.balance = roundMoney(wallet.balance - amt);
+
+  const tx = record({
     cardId,
     amount: amt,
-    timestamp: new Date().toISOString(),
-    balanceAfter: wallet.balance
-  };
-
-  transactions.push(tx);
+    balanceAfter: wallet.balance,
+    status: 'approved',
+  });
 
   return res.json({
     message: 'Tap successful',
-    ...tx
+    ...tx,
   });
 };
 
