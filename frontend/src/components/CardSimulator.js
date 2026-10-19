@@ -372,6 +372,9 @@ export default function CardSimulator({ onSettled }) {
               );
             })}
           </div>
+          <p className="classroom-pin">
+            Classroom PIN for this card <strong>{selected.classroomPin}</strong>
+          </p>
 
           <label htmlFor="amount">Amount ({selected.currency})</label>
           <div className="amount-field">
@@ -435,7 +438,7 @@ export default function CardSimulator({ onSettled }) {
                 {pinPrompt
                   ? 'The risk check wants a PIN. Enter it and tap again. '
                   : `Taps over ${formatMoney(selected.contactlessLimit, selected.currency, 0)} ask for a PIN. `}
-                The classroom PINs are in the README.
+                {`Use ${selected.classroomPin}.`}
               </p>
             </div>
           )}

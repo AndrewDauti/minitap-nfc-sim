@@ -308,7 +308,7 @@ export default function SecurityStory({ onBack }) {
             : 'Scroll up and the scene reverses with you. Above this section and below it, the page scrolls in the usual way.'}
         </p>
         <p>
-          On the till, pay with a card and open the security trace. Then replay the last code, or resend it with a changed amount, and read the decline. The classroom PINs and the limits are in the README.
+          On the till, the classroom PIN is shown under the card you pick. Pay, then open the security trace. Replay the last code, or resend it with a changed amount, and read the decline.
         </p>
         <button type="button" className="tap-btn story-back" onClick={onBack}>Back to the till</button>
       </footer>

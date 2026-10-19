@@ -19,6 +19,7 @@ export const CARD_CATALOG = {
     demoBalance: 40000,
     presets: [50, 150, 500, 1000],
     defaultAmount: '150',
+    classroomPin: '2580',
   },
   CARD002: {
     id: 'CARD002',
@@ -34,6 +35,7 @@ export const CARD_CATALOG = {
     demoBalance: 2500,
     presets: [5, 20, 50, 100],
     defaultAmount: '20',
+    classroomPin: '1492',
   },
   CARD003: {
     id: 'CARD003',
@@ -49,6 +51,7 @@ export const CARD_CATALOG = {
     demoBalance: 1800,
     presets: [10, 25, 50, 100],
     defaultAmount: '25',
+    classroomPin: '7731',
   },
 };
 

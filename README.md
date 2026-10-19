@@ -103,7 +103,7 @@ The till offers three mock cards. The browser knows each card by a public id and
 | Liberty Dollar | `CARD002` | 7720 | USD | $2,500.00 | $50 | 1492 |
 | Alpine Franc | `CARD003` | 3194 | CHF | CHF 1’800.00 | CHF 40 | 7731 |
 
-The PINs are classroom passwords so you can try the PIN step. The API hashes them with bcrypt at startup and does not log the digits you type.
+The PINs are classroom passwords so you can try the PIN step. The till shows the PIN for the card you have selected, under the card picker. The API hashes them with bcrypt at startup and does not log the digits you type.
 
 ZamPay Kwacha stays on the Zambian kwacha (ZMW). Liberty Dollar transacts in US dollars (USD). Alpine Franc transacts in Swiss francs (CHF). An amount above that card's live balance is declined in the card's own currency, and the balance does not change.
 
