@@ -716,7 +716,14 @@ label, .field-label-row p, .section-head h2 {
   font-size: 0.88rem;
 }
 
-.history { margin-top: 22px; padding: 18px; }
+.history { margin-top: 0; padding: 18px; }
+
+.history .section-head h2 {
+  font-size: clamp(1.6rem, 3vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  text-transform: none;
+}
 
 .section-head { margin-bottom: 12px; }
 .section-head h2 { font-size: 0.95rem; letter-spacing: 0.08em; }
@@ -730,8 +737,7 @@ label, .field-label-row p, .section-head h2 {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 360px;
-  overflow: auto;
+  overflow: visible;
 }
 
 .tx-item {
@@ -833,7 +839,7 @@ label, .field-label-row p, .section-head h2 {
 @media (max-width: 860px) {
   .topbar { flex-wrap: wrap; }
   .primary-nav { margin-left: 0; width: 100%; }
-  .nav-btn { flex: 1; }
+  .nav-btn { flex: 0 1 auto; white-space: nowrap; }
 
   .hero {
     grid-template-columns: 1fr;
@@ -867,6 +873,7 @@ label, .field-label-row p, .section-head h2 {
 
 .primary-nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
 }

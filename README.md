@@ -266,7 +266,7 @@ Same pass as the other payment routes. Redacted events only.
 - Approved and declined states follow the real authorisation response
 - Replay and tamper buttons that resend the last chip code to the real checker
 - PIN entry over the contactless limit, with lockout after repeated failures
-- Activity list with status, risk score, and a collapsed trace
+- Activity screen in the header, between Till and How your tap stays safe, with status, risk score, and a collapsed trace
 - Scroll story, "How your tap stays safe", with a pinned scene on desktop and on a phone-sized window
 - Reduced motion uses a normal list instead of pinning or 3D
 - Layout for desktop and mobile
