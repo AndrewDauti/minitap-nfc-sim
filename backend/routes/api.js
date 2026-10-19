@@ -1,18 +1,16 @@
 const express = require('express');
-const router = express.Router();
-const controller = require('../controllers/transactionController');
 
-router.post('/tap', controller.handleTap);
-router.get('/transactions', controller.getTransactions);
-router.get('/wallets', (req, res) => {
-  const { wallets } = require('../utils/mockData');
-  const result = Object.entries(wallets).map(([cardId, data]) => ({
-    cardId,
-    balance: data.balance,
-    currency: data.currency
-  }));
-  res.json(result);
-});
+function createRouter(controller) {
+  const router = express.Router();
+  router.get('/security-model', controller.getModel);
+  router.post('/session', controller.handleSession);
+  router.use(controller.requireSession);
+  router.get('/wallets', controller.getWallets);
+  router.get('/transactions', controller.getTransactions);
+  router.get('/audit', controller.getAudit);
+  router.post('/tap/cryptogram', controller.handleCryptogram);
+  router.post('/tap', controller.handleTap);
+  return router;
+}
 
-
-module.exports = router;
+module.exports = { createRouter };
