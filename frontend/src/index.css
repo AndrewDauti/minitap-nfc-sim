@@ -152,8 +152,37 @@ button { touch-action: manipulation; }
 }
 
 .theme-kwacha { --card-a: #04261b; --card-b: #0d7a49; --card-c: #d2652c; }
-.theme-falls { --card-a: #071422; --card-b: #0e4f7a; --card-c: #18a8bc; }
-.theme-copper { --card-a: #1a140c; --card-b: #5c431c; --card-c: #e4b868; }
+.theme-liberty { --card-a: #08142c; --card-b: #1a3e86; --card-c: #a6843a; }
+.theme-alpine { --card-a: #101820; --card-b: #1d4c5e; --card-c: #2f6f68; }
+
+.theme-liberty::before,
+.theme-alpine::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.theme-liberty::before {
+  top: 0;
+  right: 0;
+  width: 46%;
+  height: 52%;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.9) 0.7px, transparent 0.9px);
+  background-size: 13px 13px;
+  opacity: 0.45;
+  -webkit-mask-image: linear-gradient(225deg, #000 18%, transparent 72%);
+  mask-image: linear-gradient(225deg, #000 18%, transparent 72%);
+}
+
+.theme-alpine::before {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 48%;
+  background: linear-gradient(180deg, rgba(236, 244, 247, 0.34), rgba(180, 214, 216, 0.05));
+  clip-path: polygon(0 74%, 15% 48%, 29% 66%, 43% 28%, 57% 60%, 71% 22%, 85% 54%, 100% 34%, 100% 100%, 0 100%);
+}
 
 .card-gloss, .sheen, .glare {
   position: absolute;
@@ -276,7 +305,18 @@ button { touch-action: manipulation; }
   right: 18px;
   bottom: 0;
   height: 4px;
+}
+
+.ribbon-kwacha {
   background: linear-gradient(90deg, #198a4a 0 42%, #ef3340 42% 58%, #111 58% 74%, #f5a400 74%);
+}
+
+.ribbon-liberty {
+  background: linear-gradient(90deg, #122a66 0 22%, #f4f7fb 22% 28%, #c0392b 28% 100%);
+}
+
+.ribbon-alpine {
+  background: linear-gradient(90deg, #f4f7fb 0 22%, #d52b1e 22% 40%, #f4f7fb 40% 100%);
 }
 
 .terminal-wrap {
@@ -387,7 +427,7 @@ button { touch-action: manipulation; }
 }
 
 .screen {
-  min-height: 168px;
+  min-height: 196px;
   border-radius: 18px;
   padding: 14px 12px;
   display: grid;
@@ -434,6 +474,12 @@ button { touch-action: manipulation; }
   font-size: 0.68rem;
   letter-spacing: 0.14em;
   opacity: 0.72;
+}
+
+.screen-amount span.is-symbol {
+  font-size: 1.15rem;
+  letter-spacing: 0;
+  opacity: 0.92;
 }
 
 .screen-hint, .screen-place { color: #c5d0de; }
@@ -599,6 +645,12 @@ label, .field-label-row p, .section-head h2 {
   color: var(--muted);
   font-size: 0.78rem;
   letter-spacing: 0.12em;
+}
+
+.amount-field span.is-symbol {
+  letter-spacing: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
 }
 
 .amount-field input {

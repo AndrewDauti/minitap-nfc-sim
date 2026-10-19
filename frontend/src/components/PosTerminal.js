@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { MERCHANT, formatAmount, formatZMW } from './cardCatalog';
+import { MERCHANT, formatMoney, moneyParts } from './cardCatalog';
 import { Contactless, StatusMark } from './icons';
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '·', '0', '↵'];
@@ -15,9 +15,11 @@ export default function PosTerminal({
 }) {
   const screenKey = phase === 'tapping' ? 'ready' : phase;
   const showRipples = !reduced && (phase === 'tapping' || phase === 'processing');
-  const amountNumber = formatAmount(amount);
-  const approvedAmount = receipt?.ok ? formatAmount(receipt.data.amount) : amountNumber;
-  const balanceAfter = receipt?.ok ? formatZMW(receipt.data.balanceAfter) : null;
+  const currency = receipt?.data?.currency || meta.currency || 'ZMW';
+  const displayAmount = receipt?.data?.amount ?? amount;
+  const shown = moneyParts(displayAmount, currency);
+  const balanceAfter = receipt?.ok ? formatMoney(receipt.data.balanceAfter, currency) : null;
+  const symbolClass = shown.prefix.length === 1 ? 'is-symbol' : undefined;
 
   const shellVariants = reduced
     ? { still: { x: 0 }, nudge: { x: 0 }, shake: { x: 0 } }
@@ -43,8 +45,8 @@ export default function PosTerminal({
         <StatusMark kind="ok" reduced={reduced} />
         <p className="screen-status">Approved</p>
         <p className="screen-amount">
-          <span>ZMW</span>
-          {approvedAmount}
+          <span className={symbolClass}>{shown.prefix}</span>
+          {shown.number}
         </p>
         {balanceAfter && <p className="screen-hint">Balance {balanceAfter}</p>}
       </>
@@ -54,6 +56,10 @@ export default function PosTerminal({
       <>
         <StatusMark kind="bad" reduced={reduced} />
         <p className="screen-status">Declined</p>
+        <p className="screen-amount">
+          <span className={symbolClass}>{shown.prefix}</span>
+          {shown.number}
+        </p>
         <p className="screen-message">{receipt?.message || 'Tap declined'}</p>
       </>
     );
@@ -64,8 +70,8 @@ export default function PosTerminal({
         <p className="screen-merchant">{MERCHANT.name}</p>
         <p className="screen-place">{MERCHANT.place}</p>
         <p className="screen-amount">
-          <span>ZMW</span>
-          {amountNumber}
+          <span className={symbolClass}>{shown.prefix}</span>
+          {shown.number}
         </p>
         <p className="screen-hint">•••• {meta.last4} · Hold to pay</p>
       </>

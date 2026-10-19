@@ -18,7 +18,7 @@ export default function App() {
               <p className="brand-sub">Tap to pay simulator</p>
             </div>
           </div>
-          <p className="locale">Lusaka · ZMW</p>
+          <p className="locale">Lusaka · ZMW · USD · CHF</p>
         </header>
         <main>
           <CardSimulator onSettled={() => setRevision((value) => value + 1)} />

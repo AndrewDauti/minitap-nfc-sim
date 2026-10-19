@@ -5,7 +5,7 @@
 [![Open Issues](https://img.shields.io/github/issues/AndrewDauti/minitap-nfc-sim?color=orange&style=flat-square)](https://github.com/AndrewDauti/minitap-nfc-sim/issues)
 [![Repo Status](https://img.shields.io/badge/status-active-brightgreen.svg)](https://github.com/AndrewDauti/minitap-nfc-sim)
 
-A lightweight tap-to-pay simulator. The React till shows a glossy card and a point-of-sale terminal. Tapping posts to an Express API that debits an in-memory Zambian kwacha wallet and returns an approval or a decline.
+A lightweight tap-to-pay simulator. The React till shows a glossy card and a point-of-sale terminal. Tapping posts to an Express API that debits an in-memory wallet in that card's currency and returns an approval or a decline.
 
 ## Project structure
 
@@ -100,13 +100,13 @@ npm run build
 
 The till offers three mock cards. The API identifies them by `cardId`. The last four digits are display-only.
 
-| Card | cardId | Last 4 | Opening balance |
-| --- | --- | --- | --- |
-| ZamPay Kwacha | `CARD001` | 4401 | ZMW 40,000.00 |
-| Victoria Falls | `CARD002` | 7720 | ZMW 35,000.00 |
-| Copperbelt | `CARD003` | 3194 | ZMW 19,000.00 |
+| Card | cardId | Last 4 | Currency | Opening balance |
+| --- | --- | --- | --- | --- |
+| ZamPay Kwacha | `CARD001` | 4401 | ZMW | ZMW 40,000.00 |
+| Liberty Dollar | `CARD002` | 7720 | USD | $2,500.00 |
+| Alpine Franc | `CARD003` | 3194 | CHF | CHF 1’800.00 |
 
-ZamPay Kwacha is the Zambian card (kwacha, currency code ZMW). An amount above the live balance is declined by `POST /api/tap` and the terminal plays the declined state.
+ZamPay Kwacha stays on the Zambian kwacha (ZMW). Liberty Dollar transacts in US dollars (USD). Alpine Franc transacts in Swiss francs (CHF). The till shows that currency on the card, the amount field, the quick amounts, the terminal, and each activity row. An amount above that card's live balance is declined by `POST /api/tap` in the card's own currency, and the terminal plays the declined state. The decline does not change the balance.
 
 ## API
 
@@ -139,9 +139,10 @@ Approved — `200`:
 {
   "message": "Tap successful",
   "id": 1,
+  "timestamp": "2026-10-19T00:30:00.000Z",
   "cardId": "CARD001",
   "amount": 150,
-  "timestamp": "2026-10-19T00:30:00.000Z",
+  "currency": "ZMW",
   "balanceAfter": 39850,
   "status": "approved"
 }
@@ -153,9 +154,10 @@ Insufficient balance — `400`:
 {
   "error": "Insufficient balance",
   "id": 2,
+  "timestamp": "2026-10-19T00:31:00.000Z",
   "cardId": "CARD001",
   "amount": 50000,
-  "timestamp": "2026-10-19T00:31:00.000Z",
+  "currency": "ZMW",
   "balanceAfter": 39850,
   "status": "declined",
   "reason": "Insufficient balance"
@@ -185,6 +187,7 @@ curl -s http://localhost:5000/api/transactions
     "timestamp": "2026-10-19T00:30:00.000Z",
     "cardId": "CARD001",
     "amount": 150,
+    "currency": "ZMW",
     "balanceAfter": 39850,
     "status": "approved"
   }
@@ -199,16 +202,16 @@ curl -s http://localhost:5000/api/wallets
 
 ```json
 [
-  { "cardId": "CARD001", "balance": 40000 },
-  { "cardId": "CARD002", "balance": 35000 },
-  { "cardId": "CARD003", "balance": 19000 }
+  { "cardId": "CARD001", "balance": 40000, "currency": "ZMW" },
+  { "cardId": "CARD002", "balance": 2500, "currency": "USD" },
+  { "cardId": "CARD003", "balance": 1800, "currency": "CHF" }
 ]
 ```
 
 ## Features
 
 - Glossy payment card with chip, contactless mark, and pointer tilt
-- ZamPay Kwacha card plus two more mock cards, with a ZMW amount field
+- ZamPay Kwacha (ZMW), Liberty Dollar (USD), and Alpine Franc (CHF), each with its own amount field, quick amounts, and terminal currency
 - POS terminal that shows the amount and a keypad hint
 - Tap to Pay springs the card onto the reader, pulses contactless ripples, then shows a spinner
 - Approved state (check mark, green glow, soft shake) and declined state (red shake) follow the real `/api/tap` response
@@ -235,7 +238,7 @@ Approved, after `POST /api/tap` returns success:
 
 - Persist wallets and transactions past a process restart
 - Export a receipt for an approved tap
-- More than one merchant, and currencies besides ZMW
+- More than one merchant
 - Optional bridge from a hardware NFC reader
 - Authenticated access in front of `/api/tap`
 

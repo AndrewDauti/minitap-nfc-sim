@@ -8,7 +8,8 @@ router.get('/wallets', (req, res) => {
   const { wallets } = require('../utils/mockData');
   const result = Object.entries(wallets).map(([cardId, data]) => ({
     cardId,
-    balance: data.balance
+    balance: data.balance,
+    currency: data.currency
   }));
   res.json(result);
 });

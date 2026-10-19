@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
 import { getWallets, sendTap } from './api';
-import { CARD_CATALOG, CARD_ORDER, formatAmount, formatZMW } from './cardCatalog';
+import { CARD_CATALOG, CARD_ORDER, formatMoney, moneyParts } from './cardCatalog';
 import PaymentCard from './PaymentCard';
 import PosTerminal from './PosTerminal';
 
-const PRESETS = [50, 150, 500, 1000];
 const REST_FLIGHT = { x: 0, y: 0, scale: 1, rotateX: 0, rotateY: 0, rotateZ: 0 };
 
 function sleep(ms) {
@@ -101,9 +100,14 @@ export default function CardSimulator({ onSettled }) {
   const cards = CARD_ORDER.map((id) => {
     const meta = CARD_CATALOG[id];
     const live = wallets.find((row) => row.cardId === id);
-    return { ...meta, balance: live ? live.balance : meta.demoBalance };
+    return {
+      ...meta,
+      balance: live ? live.balance : meta.demoBalance,
+      currency: live?.currency || meta.currency,
+    };
   });
   const selected = cards.find((card) => card.id === cardId) || cards[0];
+  const amountPrefix = moneyParts(0, selected.currency).prefix;
   const numericAmount = Number(amount);
   const overBalance = Number.isFinite(numericAmount) && numericAmount > selected.balance;
   const busy = phase === 'tapping' || phase === 'processing';
@@ -141,7 +145,7 @@ export default function CardSimulator({ onSettled }) {
     setPhase('tapping');
     const tapPromise = sendTap(cardId, numericAmount).then(
       (data) => ({ ok: true, data }),
-      (err) => ({ ok: false, message: friendlyError(err) })
+      (err) => ({ ok: false, message: friendlyError(err), data: err?.payload || null })
     );
 
     try {
@@ -242,7 +246,7 @@ export default function CardSimulator({ onSettled }) {
           <div className="field-label-row">
             <p id="card-picker-label">Card</p>
             <p className="balance">
-              Available <strong>{formatZMW(selected.balance)}</strong>
+              Available <strong>{formatMoney(selected.balance, selected.currency)}</strong>
             </p>
           </div>
           <div className="card-picker" role="group" aria-labelledby="card-picker-label">
@@ -255,22 +259,28 @@ export default function CardSimulator({ onSettled }) {
                   className={isSelected ? 'picker-card is-selected' : 'picker-card'}
                   aria-pressed={isSelected}
                   disabled={phase !== 'idle'}
-                  onClick={() => setCardId(card.id)}
+                  onClick={() => {
+                    setCardId(card.id);
+                    setAmount(card.defaultAmount);
+                    setFieldError('');
+                  }}
                 >
                   <span className={`pip theme-${card.theme}`} aria-hidden="true" />
                   <span className="picker-copy">
                     <span className="picker-name">{card.product}</span>
                     <span className="picker-meta">•••• {card.last4}</span>
                   </span>
-                  <span className="picker-balance">{formatZMW(card.balance, 0)}</span>
+                  <span className="picker-balance">{formatMoney(card.balance, card.currency, 0)}</span>
                 </button>
               );
             })}
           </div>
 
-          <label htmlFor="amount">Amount (ZMW)</label>
+          <label htmlFor="amount">Amount ({selected.currency})</label>
           <div className="amount-field">
-            <span aria-hidden="true">ZMW</span>
+            <span className={amountPrefix.length === 1 ? 'is-symbol' : undefined} aria-hidden="true">
+              {amountPrefix}
+            </span>
             <input
               id="amount"
               name="amount"
@@ -290,7 +300,7 @@ export default function CardSimulator({ onSettled }) {
             />
           </div>
           <div className="presets">
-            {PRESETS.map((value) => (
+            {selected.presets.map((value) => (
               <button
                 key={value}
                 type="button"
@@ -301,7 +311,7 @@ export default function CardSimulator({ onSettled }) {
                   setFieldError('');
                 }}
               >
-                {formatZMW(value, 0)}
+                {formatMoney(value, selected.currency, 0)}
               </button>
             ))}
           </div>

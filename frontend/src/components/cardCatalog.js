@@ -12,34 +12,49 @@ export const CARD_CATALOG = {
     exp: '09/28',
     network: 'VISA',
     theme: 'kwacha',
+    currency: 'ZMW',
     groups: ['5412', '8801', '••••', '4401'],
     demoBalance: 40000,
+    presets: [50, 150, 500, 1000],
+    defaultAmount: '150',
   },
   CARD002: {
     id: 'CARD002',
-    product: 'Victoria Falls',
+    product: 'Liberty Dollar',
     holder: 'NAMAKAU BANDA',
     last4: '7720',
     exp: '04/27',
     network: 'VISA',
-    theme: 'falls',
+    theme: 'liberty',
+    currency: 'USD',
     groups: ['4539', '2210', '••••', '7720'],
-    demoBalance: 35000,
+    demoBalance: 2500,
+    presets: [5, 20, 50, 100],
+    defaultAmount: '20',
   },
   CARD003: {
     id: 'CARD003',
-    product: 'Copperbelt',
+    product: 'Alpine Franc',
     holder: 'KABWE MWANSA',
     last4: '3194',
     exp: '11/29',
     network: 'MASTERCARD',
-    theme: 'copper',
+    theme: 'alpine',
+    currency: 'CHF',
     groups: ['5508', '4419', '••••', '3194'],
-    demoBalance: 19000,
+    demoBalance: 1800,
+    presets: [10, 25, 50, 100],
+    defaultAmount: '25',
   },
 };
 
 export const CARD_ORDER = ['CARD001', 'CARD002', 'CARD003'];
+
+const CURRENCY_LOCALE = {
+  ZMW: 'en-ZM',
+  USD: 'en-US',
+  CHF: 'de-CH',
+};
 
 export function metaFor(cardId) {
   if (CARD_CATALOG[cardId]) return CARD_CATALOG[cardId];
@@ -51,25 +66,48 @@ export function metaFor(cardId) {
     last4,
     exp: '—',
     network: 'VISA',
-    theme: 'falls',
+    theme: 'kwacha',
+    currency: 'ZMW',
     groups: ['••••', '••••', '••••', last4],
     demoBalance: 0,
+    presets: [50, 150, 500, 1000],
+    defaultAmount: '150',
   };
 }
 
-export function formatAmount(value, digits = 2) {
-  if (value === '' || value === null || value === undefined) return '—';
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '—';
-  return new Intl.NumberFormat('en-ZM', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  }).format(n);
+function currencyDisplay(currency) {
+  return currency === 'USD' ? 'symbol' : 'code';
 }
 
-export function formatZMW(value, digits = 2) {
-  const amount = formatAmount(value, digits);
-  return amount === '—' ? 'ZMW —' : `ZMW ${amount}`;
+export function moneyParts(value, currency = 'ZMW', digits = 2) {
+  const prefix = currency === 'USD' ? '$' : currency;
+  const blank = { prefix, number: '—', text: currency === 'USD' ? '$ —' : `${currency} —` };
+  const amount = Number(value);
+  if (value === '' || value === null || value === undefined || !Number.isFinite(amount)) {
+    return blank;
+  }
+  const parts = new Intl.NumberFormat(CURRENCY_LOCALE[currency] || 'en', {
+    style: 'currency',
+    currency,
+    currencyDisplay: currencyDisplay(currency),
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).formatToParts(amount);
+  const resolvedPrefix = parts.find((part) => part.type === 'currency')?.value || prefix;
+  const number = parts
+    .filter((part) => part.type !== 'currency' && part.type !== 'literal')
+    .map((part) => part.value)
+    .join('');
+  const text = parts
+    .map((part) => part.value)
+    .join('')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\u202f/g, ' ');
+  return { prefix: resolvedPrefix, number, text };
+}
+
+export function formatMoney(value, currency = 'ZMW', digits = 2) {
+  return moneyParts(value, currency, digits).text;
 }
 
 export function formatWhen(iso) {

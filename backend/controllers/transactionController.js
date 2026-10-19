@@ -31,10 +31,13 @@ exports.handleTap = (req, res) => {
     return res.status(400).json({ error: 'Amount must be a positive number' });
   }
 
+  const currency = wallet.currency || 'ZMW';
+
   if (wallet.balance < amt) {
     const tx = record({
       cardId,
       amount: amt,
+      currency,
       balanceAfter: roundMoney(wallet.balance),
       status: 'declined',
       reason: 'Insufficient balance',
@@ -50,6 +53,7 @@ exports.handleTap = (req, res) => {
   const tx = record({
     cardId,
     amount: amt,
+    currency,
     balanceAfter: wallet.balance,
     status: 'approved',
   });
