@@ -1,45 +1,41 @@
-// src/components/api.js
+const API_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5000').replace(/\/$/, '');
 
-// GET all transactions
+async function request(path, options) {
+  const res = await fetch(`${API_BASE}${path}`, options);
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok) {
+    const error = new Error((data && data.error) || `Request failed (${res.status})`);
+    error.status = res.status;
+    error.payload = data;
+    throw error;
+  }
+  return data;
+}
+
 export const getTransactions = async () => {
-  try {
-    const res = await fetch("http://localhost:5000/api/transactions");
-    const data = await res.json(); // Expecting an array of transactions
-    return data;
-  } catch (err) {
-    console.error("Error fetching transactions:", err);
-    return [];
+  const data = await request('/api/transactions');
+  if (!Array.isArray(data)) {
+    throw new Error('Unexpected transactions response');
   }
+  return data;
 };
 
-// POST a simulated NFC tap
-export const sendTap = async (cardId, amount) => {
-  try {
-    const res = await fetch("http://localhost:5000/api/tap", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ cardId, amount }),
-    });
+export const sendTap = (cardId, amount) =>
+  request('/api/tap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cardId, amount }),
+  });
 
-    const data = await res.json();
-    console.log("Tap response:", data);
-    return data; // contains cardId, amount, message
-  } catch (err) {
-    console.error("Error sending tap:", err);
-    return { error: "Failed to tap" };
-  }
-};
-
-// ✅ NEW: GET wallet balances
 export const getWallets = async () => {
-  try {
-    const res = await fetch("http://localhost:5000/api/wallets");
-    return await res.json();
-  } catch (err) {
-    console.error("Error fetching wallets:", err);
-    return [];
+  const data = await request('/api/wallets');
+  if (!Array.isArray(data)) {
+    throw new Error('Unexpected wallets response');
   }
+  return data;
 };
-
