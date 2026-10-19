@@ -19,6 +19,7 @@ export const CARD_CATALOG = {
     demoBalance: 40000,
     presets: [50, 150, 500, 1000],
     defaultAmount: '150',
+    maxAmount: 99999.99,
     classroomPin: '2580',
   },
   CARD002: {
@@ -35,6 +36,7 @@ export const CARD_CATALOG = {
     demoBalance: 2500,
     presets: [5, 20, 50, 100],
     defaultAmount: '20',
+    maxAmount: 9999.99,
     classroomPin: '1492',
   },
   CARD003: {
@@ -51,6 +53,7 @@ export const CARD_CATALOG = {
     demoBalance: 1800,
     presets: [10, 25, 50, 100],
     defaultAmount: '25',
+    maxAmount: 9999.99,
     classroomPin: '7731',
   },
 };
@@ -80,6 +83,7 @@ export function metaFor(cardId) {
     demoBalance: 0,
     presets: [50, 150, 500, 1000],
     defaultAmount: '150',
+    maxAmount: 99999.99,
   };
 }
 
@@ -116,6 +120,29 @@ export function moneyParts(value, currency = 'ZMW', digits = 2) {
 
 export function formatMoney(value, currency = 'ZMW', digits = 2) {
   return moneyParts(value, currency, digits).text;
+}
+
+function formatCap(maxAmount) {
+  const fixed = Number(maxAmount).toFixed(2);
+  return fixed.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+}
+
+// Keeps a typed amount inside the till: digits only, one decimal point,
+// two decimal places, and never above the card's maximum.
+export function sanitizeAmount(raw, maxAmount) {
+  const max = Number(maxAmount);
+  const cleaned = String(raw ?? '').replace(/[^\d.]/g, '');
+  if (!cleaned) return '';
+  const dot = cleaned.indexOf('.');
+  let whole = dot === -1 ? cleaned : cleaned.slice(0, dot);
+  const fraction = dot === -1 ? null : cleaned.slice(dot + 1).replace(/\./g, '').slice(0, 2);
+  whole = whole.replace(/^0+(?=\d)/, '');
+  const maxWholeDigits = String(Math.floor(max)).length;
+  if (whole.length > maxWholeDigits) return formatCap(max);
+  const text = fraction === null ? whole : `${whole === '' ? '0' : whole}.${fraction}`;
+  const numeric = Number(text.endsWith('.') ? text.slice(0, -1) : text);
+  if (text !== '' && Number.isFinite(numeric) && numeric > max) return formatCap(max);
+  return text;
 }
 
 export function formatWhen(iso) {

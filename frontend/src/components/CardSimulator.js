@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
 import { authoriseTap, getWallets, issueCryptogram } from './api';
-import { CARD_CATALOG, CARD_ORDER, formatMoney, moneyParts } from './cardCatalog';
+import { CARD_CATALOG, CARD_ORDER, formatMoney, moneyParts, sanitizeAmount } from './cardCatalog';
 import PaymentCard from './PaymentCard';
 import PosTerminal from './PosTerminal';
 
@@ -188,6 +188,10 @@ export default function CardSimulator({ onSettled }) {
       }
       if (!String(amount).trim() || !Number.isFinite(numericAmount) || numericAmount <= 0) {
         setFieldError('Enter an amount greater than zero.');
+        return;
+      }
+      if (numericAmount > selected.maxAmount) {
+        setFieldError(`Enter at most ${formatMoney(selected.maxAmount, selected.currency)}.`);
         return;
       }
       if (showPin && !/^\d{4,6}$/.test(pin)) {
@@ -384,21 +388,23 @@ export default function CardSimulator({ onSettled }) {
             <input
               id="amount"
               name="amount"
-              type="number"
+              type="text"
               inputMode="decimal"
-              min="0"
-              step="0.01"
-              placeholder="0.00"
               autoComplete="off"
+              spellCheck={false}
+              placeholder="0.00"
+              aria-describedby="amount-cap"
               value={amount}
               disabled={phase !== 'idle'}
-              onWheel={(event) => event.currentTarget.blur()}
               onChange={(event) => {
-                setAmount(event.target.value);
+                setAmount(sanitizeAmount(event.target.value, selected.maxAmount));
                 if (fieldError) setFieldError('');
               }}
             />
           </div>
+          <p id="amount-cap" className="hint amount-cap">
+            {`Maximum ${formatMoney(selected.maxAmount, selected.currency)}`}
+          </p>
           <div className="presets">
             {selected.presets.map((value) => (
               <button

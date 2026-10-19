@@ -54,7 +54,7 @@ export default function PosTerminal({
         <p className="screen-status">Approved</p>
         <p className="screen-amount">
           <span className={symbolClass}>{shown.prefix}</span>
-          {shown.number}
+          <span className="screen-figure">{shown.number}</span>
         </p>
         {balanceAfter && <p className="screen-hint">Balance {balanceAfter}</p>}
       </>
@@ -66,7 +66,7 @@ export default function PosTerminal({
         <p className="screen-status">Declined</p>
         <p className="screen-amount">
           <span className={symbolClass}>{shown.prefix}</span>
-          {shown.number}
+          <span className="screen-figure">{shown.number}</span>
         </p>
         <p className="screen-message">{receipt?.message || 'Tap declined'}</p>
       </>
@@ -79,7 +79,7 @@ export default function PosTerminal({
         <p className="screen-place">{MERCHANT.place}</p>
         <p className="screen-amount">
           <span className={symbolClass}>{shown.prefix}</span>
-          {shown.number}
+          <span className="screen-figure">{shown.number}</span>
         </p>
         <p className="screen-hint">•••• {meta.last4} · Hold to pay</p>
       </>

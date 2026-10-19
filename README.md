@@ -107,7 +107,7 @@ The PINs are classroom passwords so you can try the PIN step. The till shows the
 
 ZamPay Kwacha stays on the Zambian kwacha (ZMW). Liberty Dollar transacts in US dollars (USD). Alpine Franc transacts in Swiss francs (CHF). An amount above that card's live balance is declined in the card's own currency, and the balance does not change.
 
-A tap over the contactless limit asks for the PIN. A tap over the per-tap ceiling (ZMW 8,000, USD 800, CHF 600) is declined even when the card has the money. Four taps in two minutes also ask for a PIN.
+A tap over the contactless limit asks for the PIN. A tap over the per-tap ceiling (ZMW 8,000, USD 800, CHF 600) is declined even when the card has the money. Four taps in two minutes also ask for a PIN. The amount box stops at ZMW 99,999.99, $9,999.99, or CHF 9,999.99, so a long number cannot stretch the reader.
 
 ## Security
 
