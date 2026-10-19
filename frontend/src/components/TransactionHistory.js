@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { getTransactions } from './api';
-import { formatWhen, formatZMW, metaFor } from './cardCatalog';
+import { formatMoney, formatWhen, metaFor } from './cardCatalog';
+import SecurityTrace from './SecurityTrace';
 
 function statusOf(tx) {
   return tx.status === 'declined' ? 'declined' : 'approved';
@@ -66,8 +67,9 @@ export default function TransactionHistory({ revision }) {
         <ul className="tx-scroll">
           <AnimatePresence initial={false}>
             {ordered.map((tx) => {
-              const meta = metaFor(tx.cardId);
+              const meta = metaFor(tx.cardRef || tx.cardId);
               const status = statusOf(tx);
+              const currency = tx.currency || meta.currency || 'ZMW';
               return (
                 <motion.li
                   key={tx.id}
@@ -84,15 +86,26 @@ export default function TransactionHistory({ revision }) {
                     </span>
                     <span className="tx-product">{meta.product}</span>
                   </div>
-                  <p className="tx-amount">{formatZMW(tx.amount)}</p>
+                  <p className="tx-amount">{formatMoney(tx.amount, currency)}</p>
                   <p className="tx-meta">
                     <span className="tx-last4">•••• {meta.last4}</span>
                     <span aria-hidden="true"> · </span>
                     <time dateTime={tx.timestamp}>{formatWhen(tx.timestamp)}</time>
+                    {typeof tx.riskScore === 'number' && (
+                      <span>{` · risk ${tx.riskScore}`}</span>
+                    )}
                   </p>
                   {status === 'declined' && tx.reason ? (
                     <p className="tx-reason">{tx.reason}</p>
                   ) : null}
+                  {Array.isArray(tx.trace) && (
+                    <SecurityTrace
+                      trace={tx.trace}
+                      riskScore={tx.riskScore}
+                      startOpen={false}
+                      traceKey={tx.id}
+                    />
+                  )}
                 </motion.li>
               );
             })}

@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
-import { getWallets, sendTap } from './api';
-import { CARD_CATALOG, CARD_ORDER, formatAmount, formatZMW } from './cardCatalog';
+import { authoriseTap, getWallets, issueCryptogram } from './api';
+import { CARD_CATALOG, CARD_ORDER, formatMoney, moneyParts, sanitizeAmount } from './cardCatalog';
 import PaymentCard from './PaymentCard';
 import PosTerminal from './PosTerminal';
 
-const PRESETS = [50, 150, 500, 1000];
 const REST_FLIGHT = { x: 0, y: 0, scale: 1, rotateX: 0, rotateY: 0, rotateZ: 0 };
 
 function sleep(ms) {
@@ -13,6 +12,7 @@ function sleep(ms) {
 }
 
 function friendlyError(err) {
+  if (err?.payload?.error) return err.payload.error;
   const message = err?.message || 'Tap declined';
   if (message === 'Failed to fetch' || /network|fetch/i.test(message)) {
     return 'Terminal unreachable';
@@ -48,12 +48,18 @@ export default function CardSimulator({ onSettled }) {
   const [online, setOnline] = useState(null);
   const [cardId, setCardId] = useState(CARD_ORDER[0]);
   const [amount, setAmount] = useState('150');
+  const [pin, setPin] = useState('');
+  const [pinPrompt, setPinPrompt] = useState(false);
   const [fieldError, setFieldError] = useState('');
   const [phase, setPhase] = useState('idle');
   const [flight, setFlight] = useState(REST_FLIGHT);
   const [tilt, setTilt] = useState({ rx: 0, ry: 0 });
   const [pointer, setPointer] = useState({ x: 32, y: 18 });
   const [receipt, setReceipt] = useState(null);
+  const [proof, setProof] = useState(null);
+  const [previewTrace, setPreviewTrace] = useState(null);
+  const [previewScore, setPreviewScore] = useState(null);
+  const [traceKey, setTraceKey] = useState(0);
   const slotRef = useRef(null);
   const padRef = useRef(null);
   const terminalRef = useRef(null);
@@ -75,8 +81,8 @@ export default function CardSimulator({ onSettled }) {
         setWallets(rows);
         setOnline(true);
         setCardId((current) => {
-          if (current && rows.some((row) => row.cardId === current)) return current;
-          return rows[0]?.cardId || CARD_ORDER[0];
+          if (current && rows.some((row) => row.cardRef === current)) return current;
+          return rows[0]?.cardRef || CARD_ORDER[0];
         });
       })
       .catch(() => {
@@ -100,13 +106,27 @@ export default function CardSimulator({ onSettled }) {
 
   const cards = CARD_ORDER.map((id) => {
     const meta = CARD_CATALOG[id];
-    const live = wallets.find((row) => row.cardId === id);
-    return { ...meta, balance: live ? live.balance : meta.demoBalance };
+    const live = wallets.find((row) => row.cardRef === id);
+    return {
+      ...meta,
+      balance: live ? live.balance : meta.demoBalance,
+      currency: live?.currency || meta.currency,
+      token: live?.token || '',
+      contactlessLimit: live?.contactlessLimit ?? meta.contactlessLimit,
+      locked: Boolean(live?.locked),
+      maskedPan: live?.maskedPan || `•••• •••• •••• ${meta.last4}`,
+    };
   });
   const selected = cards.find((card) => card.id === cardId) || cards[0];
+  const amountPrefix = moneyParts(0, selected.currency).prefix;
   const numericAmount = Number(amount);
   const overBalance = Number.isFinite(numericAmount) && numericAmount > selected.balance;
+  const showPin = !selected.locked && (
+    pinPrompt || (Number.isFinite(numericAmount) && numericAmount > selected.contactlessLimit)
+  );
   const busy = phase === 'tapping' || phase === 'processing';
+  const liveTrace = phase === 'approved' || phase === 'declined' ? receipt?.data?.trace : previewTrace;
+  const liveScore = phase === 'approved' || phase === 'declined' ? receipt?.data?.riskScore : previewScore;
 
   function onPointerMove(event) {
     if (reduced || phase !== 'idle' || event.pointerType !== 'mouse') return;
@@ -125,23 +145,68 @@ export default function CardSimulator({ onSettled }) {
   function reset() {
     setPhase('idle');
     setReceipt(null);
+    setPreviewTrace(null);
     setFlight(REST_FLIGHT);
     setTilt({ rx: 0, ry: 0 });
   }
 
-  async function handleTap() {
-    if (lock.current || phase !== 'idle') return;
-    if (!String(amount).trim() || !Number.isFinite(numericAmount) || numericAmount <= 0) {
-      setFieldError('Enter an amount greater than zero.');
-      return;
+  async function runPayment(lab) {
+    if (lab === 'replay') return authoriseTap(proof);
+    if (lab === 'tamper') {
+      const nextAmount = (Math.round((Number(proof.amount) + 25) * 100) / 100).toFixed(2);
+      return authoriseTap({ ...proof, amount: nextAmount });
+    }
+    const issued = await issueCryptogram({
+      token: selected.token,
+      amount,
+      currency: selected.currency,
+    });
+    const nextProof = {
+      token: issued.token,
+      amount: issued.amount,
+      currency: issued.currency,
+      atc: issued.atc,
+      nonce: issued.nonce,
+      cryptogram: issued.cryptogram,
+    };
+    setProof(nextProof);
+    return authoriseTap({
+      ...nextProof,
+      pin: showPin ? pin : undefined,
+    });
+  }
+
+  async function startAuthorisation(lab) {
+    if (lock.current) return;
+    if (!lab && phase !== 'idle') return;
+    if (lab && !proof) return;
+
+    if (!lab) {
+      if (!selected.token) {
+        setFieldError('Still waiting for the till.');
+        return;
+      }
+      if (!String(amount).trim() || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+        setFieldError('Enter an amount greater than zero.');
+        return;
+      }
+      if (numericAmount > selected.maxAmount) {
+        setFieldError(`Enter at most ${formatMoney(selected.maxAmount, selected.currency)}.`);
+        return;
+      }
+      if (showPin && !/^\d{4,6}$/.test(pin)) {
+        setFieldError('Enter the 4-digit classroom PIN.');
+        return;
+      }
     }
 
     setFieldError('');
+    setPreviewTrace(null);
     lock.current = true;
     setPhase('tapping');
-    const tapPromise = sendTap(cardId, numericAmount).then(
+    const tapPromise = runPayment(lab).then(
       (data) => ({ ok: true, data }),
-      (err) => ({ ok: false, message: friendlyError(err) })
+      (err) => ({ ok: false, message: friendlyError(err), data: err?.payload || null })
     );
 
     try {
@@ -162,9 +227,35 @@ export default function CardSimulator({ onSettled }) {
 
       const result = await tapPromise;
       if (!mounted.current) return;
+
+      if (result.data?.code === 'PIN_REQUIRED') {
+        setPinPrompt(true);
+        setPreviewTrace(result.data.trace || null);
+        setPreviewScore(result.data.riskScore);
+        setTraceKey((value) => value + 1);
+        setReceipt(null);
+        setPhase('idle');
+        setFlight(REST_FLIGHT);
+        return;
+      }
+
+      if (result.data?.code === 'PIN_INCORRECT' || result.data?.code === 'PIN_LOCKED') {
+        setPin('');
+      }
+      if (result.data?.code === 'PIN_LOCKED') {
+        setWallets((rows) => rows.map((row) => (
+          row.cardRef === cardId ? { ...row, locked: true } : row
+        )));
+      }
+      if (result.ok) {
+        setPin('');
+        setPinPrompt(false);
+      }
+
       setReceipt(result);
+      setTraceKey((value) => value + 1);
       setPhase(result.ok ? 'approved' : 'declined');
-      if (onSettled) onSettled();
+      if (onSettled && result.data?.id) onSettled();
       await refreshWallets();
     } finally {
       lock.current = false;
@@ -173,17 +264,16 @@ export default function CardSimulator({ onSettled }) {
 
   function onSubmit(event) {
     event.preventDefault();
-    if (phase === 'idle') handleTap();
+    if (phase === 'idle') startAuthorisation();
     else if (phase === 'approved' || phase === 'declined') reset();
   }
 
-  const buttonLabel = phase === 'idle'
-    ? 'Tap to Pay'
-    : busy
-      ? 'Authorising…'
-      : phase === 'approved'
-        ? 'New payment'
-        : 'Try again';
+  let buttonLabel = 'Tap to Pay';
+  if (phase === 'idle' && selected.locked) buttonLabel = 'Card locked';
+  else if (phase === 'idle' && showPin) buttonLabel = 'Tap with PIN';
+  else if (busy) buttonLabel = 'Authorising…';
+  else if (phase === 'approved') buttonLabel = 'New payment';
+  else if (phase === 'declined') buttonLabel = 'Try again';
 
   const cardAnimate = phase === 'idle' || reduced
     ? {
@@ -229,6 +319,13 @@ export default function CardSimulator({ onSettled }) {
         padRef={padRef}
         shellRef={terminalRef}
         reduced={reduced}
+        trace={liveTrace}
+        riskScore={liveScore}
+        traceKey={traceKey}
+        hasProof={Boolean(proof)}
+        labEnabled={Boolean(proof) && !busy}
+        onReplay={() => startAuthorisation('replay')}
+        onTamper={() => startAuthorisation('tamper')}
       />
 
       <form className="panel controls" onSubmit={onSubmit}>
@@ -238,11 +335,16 @@ export default function CardSimulator({ onSettled }) {
               Backend unreachable on port 5000. Taps will decline until it is running.
             </p>
           )}
+          {selected.locked && (
+            <p className="banner" role="status">
+              This card is locked after repeated PIN failures. Restart the API to clear the classroom wallet.
+            </p>
+          )}
 
           <div className="field-label-row">
             <p id="card-picker-label">Card</p>
             <p className="balance">
-              Available <strong>{formatZMW(selected.balance)}</strong>
+              Available <strong>{formatMoney(selected.balance, selected.currency)}</strong>
             </p>
           </div>
           <div className="card-picker" role="group" aria-labelledby="card-picker-label">
@@ -255,42 +357,56 @@ export default function CardSimulator({ onSettled }) {
                   className={isSelected ? 'picker-card is-selected' : 'picker-card'}
                   aria-pressed={isSelected}
                   disabled={phase !== 'idle'}
-                  onClick={() => setCardId(card.id)}
+                  onClick={() => {
+                    setCardId(card.id);
+                    setAmount(card.defaultAmount);
+                    setPin('');
+                    setPinPrompt(false);
+                    setProof(null);
+                    setFieldError('');
+                  }}
                 >
                   <span className={`pip theme-${card.theme}`} aria-hidden="true" />
                   <span className="picker-copy">
                     <span className="picker-name">{card.product}</span>
                     <span className="picker-meta">•••• {card.last4}</span>
                   </span>
-                  <span className="picker-balance">{formatZMW(card.balance, 0)}</span>
+                  <span className="picker-balance">{formatMoney(card.balance, card.currency, 0)}</span>
                 </button>
               );
             })}
           </div>
+          <p className="classroom-pin">
+            Classroom PIN for this card <strong>{selected.classroomPin}</strong>
+          </p>
 
-          <label htmlFor="amount">Amount (ZMW)</label>
+          <label htmlFor="amount">Amount ({selected.currency})</label>
           <div className="amount-field">
-            <span aria-hidden="true">ZMW</span>
+            <span className={amountPrefix.length === 1 ? 'is-symbol' : undefined} aria-hidden="true">
+              {amountPrefix}
+            </span>
             <input
               id="amount"
               name="amount"
-              type="number"
+              type="text"
               inputMode="decimal"
-              min="0"
-              step="0.01"
-              placeholder="0.00"
               autoComplete="off"
+              spellCheck={false}
+              placeholder="0.00"
+              aria-describedby="amount-cap"
               value={amount}
               disabled={phase !== 'idle'}
-              onWheel={(event) => event.currentTarget.blur()}
               onChange={(event) => {
-                setAmount(event.target.value);
+                setAmount(sanitizeAmount(event.target.value, selected.maxAmount));
                 if (fieldError) setFieldError('');
               }}
             />
           </div>
+          <p id="amount-cap" className="hint amount-cap">
+            {`Maximum ${formatMoney(selected.maxAmount, selected.currency)}`}
+          </p>
           <div className="presets">
-            {PRESETS.map((value) => (
+            {selected.presets.map((value) => (
               <button
                 key={value}
                 type="button"
@@ -301,10 +417,37 @@ export default function CardSimulator({ onSettled }) {
                   setFieldError('');
                 }}
               >
-                {formatZMW(value, 0)}
+                {formatMoney(value, selected.currency, 0)}
               </button>
             ))}
           </div>
+          {showPin && (
+            <div className="pin-field">
+              <label htmlFor="pin">PIN</label>
+              <input
+                id="pin"
+                name="pin"
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                maxLength={6}
+                value={pin}
+                disabled={phase !== 'idle'}
+                onChange={(event) => {
+                  setPin(event.target.value.replace(/\D/g, '').slice(0, 6));
+                  if (fieldError) setFieldError('');
+                }}
+              />
+              <p className="hint">
+                {pinPrompt
+                  ? 'The risk check wants a PIN. Enter it and tap again. '
+                  : `Taps over ${formatMoney(selected.contactlessLimit, selected.currency, 0)} ask for a PIN. `}
+                {`Use ${selected.classroomPin}.`}
+              </p>
+            </div>
+          )}
           {fieldError && (
             <p className="field-error" role="alert">
               {fieldError}
@@ -316,10 +459,10 @@ export default function CardSimulator({ onSettled }) {
             </p>
           )}
 
-          <button className="tap-btn" type="submit" disabled={busy} aria-busy={busy}>
+          <button className="tap-btn" type="submit" disabled={busy || selected.locked} aria-busy={busy}>
             {buttonLabel}
           </button>
-          <p className="fine-print">Simulated NFC. Nothing here charges a real card.</p>
+          <p className="fine-print">Simulated NFC. Nothing here charges a real card. The checks are a classroom model.</p>
         </div>
       </form>
     </section>

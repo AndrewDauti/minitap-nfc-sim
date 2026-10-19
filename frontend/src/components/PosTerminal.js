@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { MERCHANT, formatAmount, formatZMW } from './cardCatalog';
+import { MERCHANT, formatMoney, moneyParts } from './cardCatalog';
 import { Contactless, StatusMark } from './icons';
+import SecurityTrace from './SecurityTrace';
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '·', '0', '↵'];
 
@@ -12,12 +13,21 @@ export default function PosTerminal({
   padRef,
   shellRef,
   reduced,
+  trace,
+  riskScore,
+  traceKey,
+  hasProof,
+  labEnabled,
+  onReplay,
+  onTamper,
 }) {
   const screenKey = phase === 'tapping' ? 'ready' : phase;
   const showRipples = !reduced && (phase === 'tapping' || phase === 'processing');
-  const amountNumber = formatAmount(amount);
-  const approvedAmount = receipt?.ok ? formatAmount(receipt.data.amount) : amountNumber;
-  const balanceAfter = receipt?.ok ? formatZMW(receipt.data.balanceAfter) : null;
+  const currency = receipt?.data?.currency || meta.currency || 'ZMW';
+  const displayAmount = receipt?.data?.amount ?? amount;
+  const shown = moneyParts(displayAmount, currency);
+  const balanceAfter = receipt?.ok ? formatMoney(receipt.data.balanceAfter, currency) : null;
+  const symbolClass = shown.prefix.length === 1 ? 'is-symbol' : undefined;
 
   const shellVariants = reduced
     ? { still: { x: 0 }, nudge: { x: 0 }, shake: { x: 0 } }
@@ -43,8 +53,8 @@ export default function PosTerminal({
         <StatusMark kind="ok" reduced={reduced} />
         <p className="screen-status">Approved</p>
         <p className="screen-amount">
-          <span>ZMW</span>
-          {approvedAmount}
+          <span className={symbolClass}>{shown.prefix}</span>
+          <span className="screen-figure">{shown.number}</span>
         </p>
         {balanceAfter && <p className="screen-hint">Balance {balanceAfter}</p>}
       </>
@@ -54,6 +64,10 @@ export default function PosTerminal({
       <>
         <StatusMark kind="bad" reduced={reduced} />
         <p className="screen-status">Declined</p>
+        <p className="screen-amount">
+          <span className={symbolClass}>{shown.prefix}</span>
+          <span className="screen-figure">{shown.number}</span>
+        </p>
         <p className="screen-message">{receipt?.message || 'Tap declined'}</p>
       </>
     );
@@ -64,8 +78,8 @@ export default function PosTerminal({
         <p className="screen-merchant">{MERCHANT.name}</p>
         <p className="screen-place">{MERCHANT.place}</p>
         <p className="screen-amount">
-          <span>ZMW</span>
-          {amountNumber}
+          <span className={symbolClass}>{shown.prefix}</span>
+          <span className="screen-figure">{shown.number}</span>
         </p>
         <p className="screen-hint">•••• {meta.last4} · Hold to pay</p>
       </>
@@ -76,7 +90,7 @@ export default function PosTerminal({
     <div className="terminal-wrap">
       <motion.div
         ref={shellRef}
-        className={`terminal phase-${phase}`}
+        className={`terminal phase-${phase}${trace?.length ? ' has-trace' : ''}`}
         initial={false}
         animate={variant}
         variants={shellVariants}
@@ -116,16 +130,35 @@ export default function PosTerminal({
             </AnimatePresence>
           )}
         </div>
-        <div className="speaker" aria-hidden="true" />
-        <div className="keypad" aria-hidden="true">
-          {KEYS.map((key) => (
-            <span className="key" key={key}>
-              {key}
-            </span>
-          ))}
-        </div>
-        <p className="keypad-caption">Keypad hint · amount is set on the till</p>
+        {trace?.length ? (
+          <SecurityTrace trace={trace} riskScore={riskScore} traceKey={traceKey} />
+        ) : (
+          <>
+            <div className="speaker" aria-hidden="true" />
+            <div className="keypad" aria-hidden="true">
+              {KEYS.map((key) => (
+                <span className="key" key={key}>
+                  {key}
+                </span>
+              ))}
+            </div>
+            <p className="keypad-caption">Keypad hint · amount is set on the till</p>
+          </>
+        )}
       </motion.div>
+      {hasProof && (
+        <div className="lab">
+          <p className="lab-note">
+            Resend the last chip code through the real checker.
+          </p>
+          <button type="button" className="lab-btn" onClick={onReplay} disabled={!labEnabled}>
+            Replay last tap
+          </button>
+          <button type="button" className="lab-btn lab-tamper" onClick={onTamper} disabled={!labEnabled}>
+            Change the amount and resend
+          </button>
+        </div>
+      )}
     </div>
   );
 }

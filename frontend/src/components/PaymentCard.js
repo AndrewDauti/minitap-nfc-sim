@@ -22,7 +22,7 @@ export default function PaymentCard({ meta, animate, transition, pointer, flying
         <div className="card-top">
           <div className="card-brand">
             <strong>{meta.product}</strong>
-            <small>{meta.theme === 'kwacha' ? 'Debit · ZMW' : 'Debit'}</small>
+            <small>Debit · {meta.currency}</small>
           </div>
           <Contactless />
         </div>
@@ -53,7 +53,7 @@ export default function PaymentCard({ meta, animate, transition, pointer, flying
             <span className="visa">VISA</span>
           )}
         </div>
-        {meta.theme === 'kwacha' && <span className="flag-ribbon" aria-hidden="true" />}
+        <span className={`flag-ribbon ribbon-${meta.theme}`} aria-hidden="true" />
       </div>
     </motion.article>
   );
