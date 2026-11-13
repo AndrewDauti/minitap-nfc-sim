@@ -3,8 +3,9 @@ const { describeAgility } = require('../security/cryptoAgility');
 const { parseCryptogramBody, parseAuthoriseBody } = require('../security/validate');
 const { completeTrace } = require('../security/trace');
 const { sendPublic } = require('../security/redact');
+const { parseAllowanceBody, parseSyncBody, describeOffline } = require('../security/offline');
 
-function createController({ vault, sessions, chip, issuer, audit, macSuite }) {
+function createController({ vault, sessions, chip, issuer, audit, offline, macSuite }) {
   const transactions = [];
 
   function requireSession(req, res, next) {
@@ -37,6 +38,7 @@ function createController({ vault, sessions, chip, issuer, audit, macSuite }) {
     return sendPublic(res, 200, {
       ...describeAgility(macSuite),
       ...publicPolicy(),
+      ...describeOffline(),
     });
   }
 
@@ -133,6 +135,34 @@ function createController({ vault, sessions, chip, issuer, audit, macSuite }) {
     return sendPublic(res, outcome.status, body);
   }
 
+  function getOfflineStatus(req, res) {
+    return sendPublic(res, 200, offline.statusBody('CARD001'));
+  }
+
+  function openOfflineAllowance(req, res) {
+    const parsed = parseAllowanceBody(req.body);
+    if (!parsed.ok) {
+      return sendPublic(res, 400, { error: parsed.error, code: 'VALIDATION' });
+    }
+    const card = vault.findByToken(parsed.value.token);
+    if (!card) {
+      return sendPublic(res, 404, { error: 'Card not registered', code: 'UNKNOWN_TOKEN' });
+    }
+    const outcome = offline.openAllowance(card, parsed.value.amountCents);
+    if (outcome.audit) audit.add(outcome.audit);
+    return sendPublic(res, outcome.status, outcome.body);
+  }
+
+  function syncOffline(req, res) {
+    const parsed = parseSyncBody(req.body);
+    if (!parsed.ok) {
+      return sendPublic(res, 400, { error: parsed.error, code: 'VALIDATION' });
+    }
+    const outcome = offline.settle(parsed.value);
+    outcome.audits.forEach((entry) => audit.add(entry));
+    return sendPublic(res, outcome.status, outcome.body);
+  }
+
   return {
     requireSession,
     handleSession,
@@ -142,6 +172,9 @@ function createController({ vault, sessions, chip, issuer, audit, macSuite }) {
     getAudit,
     handleCryptogram,
     handleTap,
+    getOfflineStatus,
+    openOfflineAllowance,
+    syncOffline,
   };
 }
 

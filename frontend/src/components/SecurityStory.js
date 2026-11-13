@@ -118,10 +118,10 @@ export default function SecurityStory({ onBack }) {
     };
 
     mm.add('(min-width: 860px)', () => {
-      build('+=640%', '168px');
+      build(`+=${Math.round(STAGES.length * 92)}%`, '168px');
     });
     mm.add('(max-width: 859.98px)', () => {
-      build('+=520%', '88px');
+      build(`+=${Math.round(STAGES.length * 74)}%`, '88px');
     });
 
     document.fonts?.ready?.then(() => {
@@ -165,9 +165,10 @@ export default function SecurityStory({ onBack }) {
       <header className="story-intro">
         <p className="story-kicker">Classroom model</p>
         <h1 id="story-title" tabIndex={-1}>How your tap stays safe</h1>
-        <p className="story-lede">
+          <p className="story-lede">
           A tap feels instant. Under it, the till and the bank run a series of checks before any money moves.
-          This page walks through the checks MiniTap actually runs. It is a classroom model of how payments are protected, not the cryptography a bank would ship.
+          This page walks through the checks MiniTap actually runs, including the offline allowance, the signed tokens, and the checks that run again when a queue syncs.
+          It is a classroom model of how payments are protected, not the cryptography a bank would ship.
         </p>
         {!reduced && (
           <p className="story-scroll-hint">Scroll to move through the checks. Scroll up to go back.</p>
@@ -234,7 +235,7 @@ export default function SecurityStory({ onBack }) {
                         style={{ '--angle': `${index * (360 / STAGES.length)}deg` }}
                         ref={(node) => { nodeRefs.current[index] = node; }}
                       >
-                        <span className="node-index">{`0${index + 1}`}</span>
+                        <span className="node-index">{String(index + 1).padStart(2, '0')}</span>
                         <span className="node-name">{stage.nav}</span>
                       </div>
                     ))}
@@ -269,7 +270,7 @@ export default function SecurityStory({ onBack }) {
               </div>
             </div>
             <div className="story-copy">
-              <p className="story-count" aria-hidden="true">{`0${active + 1} / 0${STAGES.length}`}</p>
+              <p className="story-count" aria-hidden="true">{`${String(active + 1).padStart(2, '0')} / ${String(STAGES.length).padStart(2, '0')}`}</p>
               {STAGES.map((stage, index) => (
                 <div
                   key={stage.id}
@@ -308,7 +309,10 @@ export default function SecurityStory({ onBack }) {
             : 'Scroll up and the scene reverses with you. Above this section and below it, the page scrolls in the usual way.'}
         </p>
         <p>
-          On the till, the classroom PIN is shown under the card you pick. Pay, then open the security trace. Replay the last code, or resend it with a changed amount, and read the decline.
+          On the sale screen, set aside an allowance while the network is on, switch it off, and take a payment. The till checks the signature on the phone. Switch the network on and the queue syncs. Replay, a changed amount, and a rolled-back counter are refused.
+        </p>
+        <p>
+          On the classroom till, the PIN is shown under the card you pick. Pay, then open the security trace. Replay the last code, or resend it with a changed amount, and read the decline.
         </p>
         <button type="button" className="tap-btn story-back" onClick={onBack}>Back to the till</button>
       </footer>

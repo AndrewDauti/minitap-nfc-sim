@@ -152,10 +152,11 @@ function createIssuer({ vault, replay, macSuite }) {
       detail: `ATC ${atc} and this terminal nonce have not been used.`,
     });
 
+    const availableCents = card.balanceCents - (card.lockedCents || 0);
     const recentCount = noteRecent(card, Date.now(), VELOCITY_WINDOW_MS);
     const risk = assessRisk({
       amountCents,
-      balanceCents: card.balanceCents,
+      balanceCents: availableCents,
       limitCents: card.contactlessLimitCents,
       ceilingCents: card.ceilingCents,
       recentCount,
@@ -293,7 +294,7 @@ function createIssuer({ vault, replay, macSuite }) {
       });
     }
 
-    if (card.balanceCents < amountCents) {
+    if (availableCents < amountCents) {
       steps.push({
         id: 'balance',
         label: 'Balance',

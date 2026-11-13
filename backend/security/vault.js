@@ -31,6 +31,7 @@ function createVault({ pins, keys = {}, bcryptRounds }) {
       atc: 0,
       pinFailures: 0,
       locked: false,
+      lockedCents: 0,
       recent: [],
     };
   });
@@ -47,6 +48,7 @@ function createVault({ pins, keys = {}, bcryptRounds }) {
       last4: card.last4,
       product: card.product,
       balance: fromCents(card.balanceCents),
+      spendable: fromCents(card.balanceCents - (card.lockedCents || 0)),
       currency: card.currency,
       contactlessLimit: fromCents(card.contactlessLimitCents),
       locked: card.locked,
