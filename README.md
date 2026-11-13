@@ -9,6 +9,37 @@ A tap-to-pay simulator. The React till shows a glossy card and a point-of-sale t
 
 This is an educational model of how a contactless payment is protected. It is not production payment cryptography, and nothing here charges a real card.
 
+## Offline demo
+
+The opening screen is a Zamtel Kwacha till that can take a sale with the network off. Payments are simulated. Nothing here charges a real wallet.
+
+1. Start the API and the frontend (the commands are below). Open [http://localhost:3000](http://localhost:3000).
+2. Leave the network toggle on **Online**. On the customer phone, set aside **K300**. That locks K300 out of the spendable balance and loads a batch of single-use tokens. Each token has a counter, a spending cap, and an issuer signature.
+3. Switch the network toggle to **Offline**. The phones show a red **OFFLINE** chip. Enter an amount on the till (K25.00 is ready), press **Take payment**, then **Tap to pay** on the customer phone. You can also use **Show my QR** and **Scan QR instead**.
+4. The till checks the signature, the counter, and the remaining allowance on the phone. It does not call the server. A good tap shows **K25.00 secured** and the amber line **1 sale saved · will sync automatically**.
+5. Switch the network back to **Online**. The queue uploads. Clean sales settle to Mutale Store. The till lists them as settled. A simulated SMS appears beside the phones.
+6. Open **Books** for the sales record, the offline invoice draft, and the turnover tax screen. The rate and threshold there are example values you can edit. They are not an official ZRA figure.
+7. Open **Network** for a partner view. The large cards are labelled example data. The strip at the top is this browser session.
+8. Open **How your tap stays safe** for the scroll story. It still walks through the classroom checks, and it now includes the allowance, the signed tokens, the counter, and the sync checks.
+
+Under **Security checks**, three buttons show the failures: replay a copied token, change a saved amount, or roll a counter back. The till lists those as blocked.
+
+The classroom till, the activity list, and the scroll story are still in the header. Restarting the API clears balances, tokens, and the audit log. Refreshing the page keeps the customer tokens for this browser tab until the API restarts.
+
+While the phone is online, the server sets the allowance aside and signs each token with Ed25519. The private key stays on the server. The till keeps the public key. At the tap, the customer wallet also MACs the amount with a per-token spend key. The till checks that code, then drops the spend key, so a later edit of the queued amount cannot be re-signed. On sync the server repeats the signature check, the spend code, the counter, and the allowance. A copied token, a rolled-back counter, an edited amount, or a sale past the allowance is blocked and does not credit the trader.
+
+### `POST /api/offline/allowance`
+
+Needs the terminal pass. Body: `{ "token": "tok_…", "amount": 300 }`. The response includes the public key and the customer token batch. The spend key in that batch is the customer token secret for this classroom model. It is not the card key, and the sync response does not return it.
+
+### `POST /api/offline/sync`
+
+Needs the terminal pass. Body: `{ "sales": [ … ] }`. Each sale carries the token id, counter, cap, signature, amount, and spend code. Settled rows credit Mutale Store. Blocked rows include `REPLAY`, `TAMPERED_AMOUNT`, `COUNTER_ROLLBACK`, or `ALLOWANCE_EXCEEDED`.
+
+### `GET /api/offline/status`
+
+Needs the terminal pass. Returns the public key, the trader balance, any open allowance, and the example tax rate. The tax note says the rate is not official.
+
 ## Project structure
 
 ```
@@ -20,7 +51,7 @@ This is an educational model of how a contactless payment is protected. It is no
 ├── backend
 │   ├── controllers/transactionController.js
 │   ├── routes/api.js
-│   ├── security/          # cryptogram, token vault, PIN, risk, audit
+│   ├── security/          # cryptogram, offline tokens, token vault, PIN, risk, audit
 │   ├── server.js
 │   ├── test/security.test.js
 │   └── package.json
@@ -65,6 +96,8 @@ npm test
 ```
 
 The tests check that a replay is rejected, a changed amount is rejected, three wrong PINs lock the card, and the rate limit returns HTTP 429. They also check that responses do not contain a PAN, a card key, or a password hash.
+
+`test/offline.test.js` checks the offline allowance. A second sale past the allowance settles only the first. A token replayed on a later sync is rejected. An edited amount is rejected and does not move money. A counter lower than one already settled is rejected. An online tap cannot spend the locked allowance.
 
 ## Run the frontend
 
@@ -268,6 +301,9 @@ Same pass as the other payment routes. Redacted events only.
 - PIN entry over the contactless limit, with lockout after repeated failures
 - Activity screen in the header, between Till and How your tap stays safe, with status, risk score, and a collapsed trace
 - Scroll story, "How your tap stays safe", with a pinned scene on desktop and on a phone-sized window
+- Offline allowance on Zamtel Kwacha, with a batch of single-use signed tokens
+- Till that verifies a tap locally while the network toggle is off, then syncs the queue
+- Sales record, example turnover tax, and a partner dashboard marked as example data
 - Reduced motion uses a normal list instead of pinning or 3D
 - Layout for desktop and mobile
 

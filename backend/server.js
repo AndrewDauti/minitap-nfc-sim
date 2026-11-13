@@ -14,6 +14,7 @@ const { createAudit } = require('./security/audit');
 const { createReplayStore } = require('./security/replayStore');
 const { createChip } = require('./security/chip');
 const { createIssuer } = require('./security/issuer');
+const { createOffline } = require('./security/offline');
 const { createController } = require('./controllers/transactionController');
 const { createRouter } = require('./routes/api');
 const { sendPublic } = require('./security/redact');
@@ -37,12 +38,14 @@ function createApp(overrides = {}) {
   const replay = createReplayStore();
   const chip = createChip({ vault, replay, macSuite: config.macSuite });
   const issuer = createIssuer({ vault, replay, macSuite: config.macSuite });
+  const offline = createOffline({ vault });
   const controller = createController({
     vault,
     sessions,
     chip,
     issuer,
     audit,
+    offline,
     macSuite: config.macSuite,
   });
 

@@ -72,6 +72,22 @@ export const issueCryptogram = ({ token, amount, currency }) =>
     body: JSON.stringify({ token, amount, currency }),
   });
 
+export const getOfflineStatus = () => authed('/api/offline/status');
+
+export const createAllowance = ({ token, amount }) =>
+  authed('/api/offline/allowance', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, amount }),
+  });
+
+export const syncOfflineSales = (sales) =>
+  authed('/api/offline/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sales }),
+  });
+
 export const authoriseTap = (payload) => {
   const body = {
     token: payload.token,

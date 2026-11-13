@@ -10,6 +10,9 @@ function createRouter(controller) {
   router.get('/audit', controller.getAudit);
   router.post('/tap/cryptogram', controller.handleCryptogram);
   router.post('/tap', controller.handleTap);
+  router.get('/offline/status', controller.getOfflineStatus);
+  router.post('/offline/allowance', controller.openOfflineAllowance);
+  router.post('/offline/sync', controller.syncOffline);
   return router;
 }
 

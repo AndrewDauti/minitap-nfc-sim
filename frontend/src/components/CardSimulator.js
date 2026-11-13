@@ -109,7 +109,10 @@ export default function CardSimulator({ onSettled }) {
     const live = wallets.find((row) => row.cardRef === id);
     return {
       ...meta,
-      balance: live ? live.balance : meta.demoBalance,
+      balance: live ? (live.spendable ?? live.balance) : meta.demoBalance,
+      heldOffline: live && Number.isFinite(live.spendable)
+        ? Math.round((Number(live.balance) - Number(live.spendable)) * 100) / 100
+        : 0,
       currency: live?.currency || meta.currency,
       token: live?.token || '',
       contactlessLimit: live?.contactlessLimit ?? meta.contactlessLimit,
@@ -379,6 +382,11 @@ export default function CardSimulator({ onSettled }) {
           <p className="classroom-pin">
             Classroom PIN for this card <strong>{selected.classroomPin}</strong>
           </p>
+          {selected.heldOffline > 0 && (
+            <p className="hint">
+              {`${formatMoney(selected.heldOffline, selected.currency)} is set aside for offline taps.`}
+            </p>
+          )}
 
           <label htmlFor="amount">Amount ({selected.currency})</label>
           <div className="amount-field">
