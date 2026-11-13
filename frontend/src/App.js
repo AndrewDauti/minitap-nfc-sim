@@ -41,7 +41,13 @@ function AppShell() {
       <div className="app">
         <header className="topbar">
           <div className="brand">
-            <span className="brand-badge" aria-hidden="true" />
+            <img
+              className="brand-badge"
+              src={`${process.env.PUBLIC_URL}/minitap-icon.png`}
+              alt=""
+              width="42"
+              height="42"
+            />
             <div>
               <p className="brand-name">MiniTap</p>
               <p className="brand-sub">{demoView ? 'Zamtel Kwacha' : 'Tap to pay simulator'}</p>

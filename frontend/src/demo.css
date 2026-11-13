@@ -32,12 +32,6 @@
   color: var(--muted);
 }
 
-.demo-shell .brand-badge {
-  background:
-    radial-gradient(circle at 30% 30%, #d7f58a, transparent 42%),
-    linear-gradient(145deg, #0E8A4B, #0B6B3A);
-}
-
 .demo-shell .nav-btn {
   border-color: rgba(17, 24, 20, 0.14);
   background: #fff;
