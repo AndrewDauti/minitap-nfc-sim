@@ -149,15 +149,22 @@ export default function SecurityStory({ onBack }) {
   function jump(index) {
     if (reduced) {
       document.getElementById(STAGES[index].id)?.scrollIntoView({ behavior: 'auto', block: 'start' });
+      setActive(index);
       return;
     }
     const trigger = ScrollTrigger.getById('how-tap-stays-safe');
     if (!trigger) return;
     const span = trigger.end - trigger.start;
+    // The label changes at the edge of a step, and that same edge is where
+    // the sentence starts to crossfade. Stopping there leaves the new
+    // highlight beside the previous sentence. The middle of the step is
+    // where the words and the picture have both settled.
+    const progress = (index + 0.5) / STAGES.length;
     window.scrollTo({
-      top: trigger.start + (span * index) / STAGES.length + 1,
-      behavior: 'smooth',
+      top: trigger.start + span * progress,
+      behavior: 'auto',
     });
+    ScrollTrigger.update();
   }
 
   return (
