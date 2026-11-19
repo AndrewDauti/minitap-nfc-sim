@@ -1,9 +1,11 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { createAllowance, getOfflineStatus, getWallets, syncOfflineSales } from '../components/api';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createAllowance, getOfflineStatus, getWallets, openTill, syncOfflineSales } from '../components/api';
 import { sanitizeAmount } from '../components/cardCatalog';
 import {
   MERCHANT_REF,
+  MERCHANTS,
   formatK,
+  merchantByRef,
   spendMacHex,
   tokenRef,
   verifyTokenSignature,
@@ -12,6 +14,25 @@ import {
 const STORAGE_KEY = 'minitap-offline-demo-v1';
 const DemoContext = createContext(null);
 
+function blankBooks() {
+  return Object.fromEntries(MERCHANTS.map((shop) => [shop.ref, { invoiceIssued: false, taxFiled: false }]));
+}
+
+function seedMerchants(rows) {
+  const live = new Map((rows || []).map((row) => [row.ref, row]));
+  return MERCHANTS.map((shop) => {
+    const row = live.get(shop.ref);
+    return {
+      ...shop,
+      name: row?.name || shop.name,
+      place: row?.place || shop.place,
+      category: row?.category || shop.category,
+      line: row?.line || shop.line,
+      balance: Number(row?.balance) || 0,
+    };
+  });
+}
+
 const INITIAL = {
   loading: true,
   ready: false,
@@ -19,7 +40,8 @@ const INITIAL = {
   network: 'online',
   wallet: null,
   publicKey: '',
-  merchant: { ref: MERCHANT_REF, name: 'Mutale Store', place: 'Lusaka', category: 'Groceries' },
+  merchant: seedMerchants()[0],
+  merchants: seedMerchants(),
   allowance: null,
   queue: [],
   ledger: [],
@@ -27,14 +49,37 @@ const INITIAL = {
   traderBalance: 0,
   syncing: false,
   notice: '',
+  nextCue: 'Pick a shop, then set aside an allowance on the customer phone.',
   allowanceChoice: 300,
   taxRate: 5,
   taxThreshold: 20,
-  invoiceIssued: false,
-  taxFiled: false,
+  shopBooks: blankBooks(),
   till: { phase: 'amount', amount: '25.00', fresh: true, sync: null, localError: '' },
   customer: { screen: 'home', paid: null, frozen: false },
 };
+
+function booksFromSaved(saved) {
+  const books = blankBooks();
+  if (saved?.shopBooks && typeof saved.shopBooks === 'object') {
+    MERCHANTS.forEach((shop) => {
+      const row = saved.shopBooks[shop.ref];
+      if (!row || typeof row !== 'object') return;
+      books[shop.ref] = {
+        invoiceIssued: Boolean(row.invoiceIssued),
+        taxFiled: Boolean(row.taxFiled),
+      };
+    });
+    return books;
+  }
+  const ref = typeof saved?.merchantRef === 'string' ? saved.merchantRef : MERCHANT_REF;
+  if (books[ref] && (saved?.invoiceIssued || saved?.taxFiled)) {
+    books[ref] = {
+      invoiceIssued: Boolean(saved.invoiceIssued),
+      taxFiled: Boolean(saved.taxFiled),
+    };
+  }
+  return books;
+}
 
 function readSaved() {
   try {
@@ -78,14 +123,15 @@ function nextLocalId() {
   return `sale_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
-async function buildSale(token, amountCents) {
+async function buildSale(token, amountCents, merchant) {
+  const shop = merchant?.ref ? merchant : merchantByRef(MERCHANT_REF);
   const fields = {
     tokenId: token.tokenId,
     counter: token.counter,
     amountCents,
     currency: token.currency,
     allowanceId: token.allowanceId,
-    merchantRef: MERCHANT_REF,
+    merchantRef: shop.ref,
   };
   const spendMac = await spendMacHex(token.spendKey, fields);
   return {
@@ -97,7 +143,8 @@ async function buildSale(token, amountCents) {
     allowanceId: token.allowanceId,
     cardRef: token.cardRef,
     currency: token.currency,
-    merchantRef: MERCHANT_REF,
+    merchantRef: shop.ref,
+    merchantName: shop.name,
     signature: token.signature,
     amount: (amountCents / 100).toFixed(2),
     spendMac,
@@ -118,6 +165,8 @@ function ledgerFrom(sale, extra) {
     riskScore: null,
     offline: false,
     attack: null,
+    merchantRef: sale.merchantRef || MERCHANT_REF,
+    merchantName: sale.merchantName || merchantByRef(sale.merchantRef || MERCHANT_REF).name,
     payload: sale,
     ...extra,
   };
@@ -127,7 +176,11 @@ function applySync(state, result, sales) {
   const settledPool = [...(result.settled || [])];
   const blockedPool = [...(result.blocked || [])];
   const take = (pool, sale) => {
-    const idx = pool.findIndex((row) => row.tokenId === sale.tokenId && row.amount === Number(sale.amount));
+    const idx = pool.findIndex((row) => (
+    row.tokenId === sale.tokenId
+    && row.amount === Number(sale.amount)
+    && (!row.merchantRef || row.merchantRef === sale.merchantRef)
+  ));
     if (idx < 0) return null;
     return pool.splice(idx, 1)[0];
   };
@@ -194,12 +247,28 @@ function applySync(state, result, sales) {
     body: row.body,
     at: new Date().toISOString(),
   }));
+  const merchants = result.merchants ? seedMerchants(result.merchants) : state.merchants;
+  const merchant = merchants.find((shop) => shop.ref === state.merchant.ref) || merchants[0];
+  const settledCount = (result.settled || []).length;
+  const blockedCount = (result.blocked || []).length;
+  const shopNames = [...new Set(sales.map((sale) => sale.merchantName || merchantByRef(sale.merchantRef).name))];
+  let nextCue = state.nextCue;
+  if (settledCount && !blockedCount) {
+    nextCue = `Settled to ${shopNames.join(', ')}. Open Books for that shop, or press Next sale.`;
+  } else if (blockedCount && !settledCount) {
+    nextCue = 'The server blocked the sale. Read the reason on the till. A clean tap can still go through.';
+  } else if (settledCount && blockedCount) {
+    nextCue = 'Some sales settled and some were blocked. The till lists each result.';
+  }
   return {
     ...state,
     queue: state.queue.filter((sale) => !sent.has(sale.localId)),
     ledger,
     allowance,
-    traderBalance: result.trader ? result.trader.balance : state.traderBalance,
+    merchants,
+    merchant,
+    traderBalance: merchant ? merchant.balance : state.traderBalance,
+    nextCue,
     wallet: state.wallet
       ? {
         ...state.wallet,
@@ -266,12 +335,37 @@ export function DemoProvider({ children }) {
       return;
     }
     syncingRef.current = true;
-    commit((current) => ({ ...current, syncing: true }));
+    commit((current) => ({
+      ...current,
+      syncing: true,
+      nextCue: 'Sending saved sales to the shop that took each one.',
+    }));
     try {
-      const result = await syncOfflineSales(batch.map(wireSale));
+      const groups = new Map();
+      batch.forEach((sale) => {
+        const ref = sale.merchantRef || MERCHANT_REF;
+        const list = groups.get(ref) || [];
+        list.push(sale);
+        groups.set(ref, list);
+      });
+      let merged = null;
+      for (const [ref, group] of groups) {
+        const result = await syncOfflineSales(group.map(wireSale), ref);
+        merged = merged
+          ? {
+            settled: [...(merged.settled || []), ...(result.settled || [])],
+            blocked: [...(merged.blocked || []), ...(result.blocked || [])],
+            trader: result.trader || merged.trader,
+            merchants: result.merchants || merged.merchants,
+            customer: result.customer || merged.customer,
+            allowance: result.allowance || merged.allowance,
+            sms: [...(merged.sms || []), ...(result.sms || [])],
+          }
+          : result;
+      }
       const sent = new Set(batch.map((sale) => sale.localId));
       queueRef.current = queueRef.current.filter((sale) => !sent.has(sale.localId));
-      commit((current) => applySync({ ...current, queue: queueRef.current }, result, batch));
+      commit((current) => applySync({ ...current, queue: queueRef.current }, merged, batch));
     } catch (err) {
       commit((current) => ({ ...current, syncing: false, notice: messageOf(err) }));
     } finally {
@@ -292,6 +386,9 @@ export function DemoProvider({ children }) {
         if (!active) return;
         const saved = readSaved();
         const wallet = kwachaWallet(wallets);
+        const merchants = seedMerchants(status.merchants);
+        const savedRef = typeof saved?.merchantRef === 'string' ? saved.merchantRef : MERCHANT_REF;
+        const merchant = merchants.find((shop) => shop.ref === savedRef) || merchants[0];
         const sameAllowance = Boolean(
           status.allowance
           && saved?.allowance
@@ -316,17 +413,20 @@ export function DemoProvider({ children }) {
           network: saved?.network === 'offline' ? 'offline' : 'online',
           wallet,
           publicKey: status.issuerPublicKey || '',
-          merchant: status.merchant || INITIAL.merchant,
+          merchant,
+          merchants,
           allowance,
           queue: sameAllowance && Array.isArray(saved.queue) ? saved.queue : [],
           ledger: sameAllowance && Array.isArray(saved.ledger) ? saved.ledger : [],
           sms: sameAllowance && Array.isArray(saved.sms) ? saved.sms : [],
-          traderBalance: status.trader?.balance || 0,
+          traderBalance: merchant.balance || 0,
+          nextCue: merchant.balance
+            ? `${merchant.name} is the active shop. Settled balance ${formatK(merchant.balance)}.`
+            : `Active shop: ${merchant.name}. Set aside an allowance, then take a payment.`,
           allowanceChoice: saved?.allowanceChoice || 300,
           taxRate: Number.isFinite(saved?.taxRate) ? saved.taxRate : 5,
           taxThreshold: Number.isFinite(saved?.taxThreshold) ? saved.taxThreshold : 20,
-          invoiceIssued: Boolean(saved?.invoiceIssued),
-          taxFiled: Boolean(saved?.taxFiled),
+          shopBooks: booksFromSaved(saved),
           till: {
             ...INITIAL.till,
             amount: typeof saved?.amount === 'string' ? saved.amount : '25.00',
@@ -339,7 +439,13 @@ export function DemoProvider({ children }) {
         });
       } catch {
         if (!active) return;
-        commit((current) => ({ ...current, loading: false, ready: true, apiOnline: false }));
+        commit((current) => ({
+          ...current,
+          loading: false,
+          ready: true,
+          apiOnline: false,
+          notice: 'The till cannot reach the API on port 5000. Start the backend with npm start, then refresh this page.',
+        }));
       }
     })();
     return () => {
@@ -366,10 +472,10 @@ export function DemoProvider({ children }) {
       frozen: state.customer.frozen,
       taxRate: state.taxRate,
       taxThreshold: state.taxThreshold,
-      invoiceIssued: state.invoiceIssued,
-      taxFiled: state.taxFiled,
       allowanceChoice: state.allowanceChoice,
       amount: state.till.amount,
+      merchantRef: state.merchant?.ref || MERCHANT_REF,
+      shopBooks: state.shopBooks,
     };
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }, [state]);
@@ -380,9 +486,55 @@ export function DemoProvider({ children }) {
 
   function setNetwork(network) {
     networkRef.current = network;
-    commit((current) => ({ ...current, network, notice: '' }));
+    const queued = queueRef.current.length;
+    commit((current) => ({
+      ...current,
+      network,
+      notice: '',
+      nextCue: network === 'offline'
+        ? 'Network is off. Take a payment now. It stays on this phone until you switch back to Online.'
+        : queued
+          ? 'Network is on. Saved sales are syncing to the shop that took them.'
+          : 'Network is on. Set aside an allowance, or take a payment and it will settle straight away.',
+    }));
     if (network === 'online') syncNow(queueRef.current);
   }
+
+  async function selectMerchant(ref) {
+    const shop = stateRef.current.merchants.find((item) => item.ref === ref);
+    if (!shop || shop.ref === stateRef.current.merchant.ref) return;
+    commit((current) => ({
+      ...current,
+      merchant: shop,
+      traderBalance: shop.balance || 0,
+      notice: '',
+      nextCue: `Now taking payments for ${shop.name}. The next sale settles to this shop.`,
+    }));
+    try {
+      await openTill(shop.ref);
+    } catch (err) {
+      notice(`Could not open the till for ${shop.name}. ${messageOf(err)} Check that the API is running, then pick the shop again.`);
+    }
+  }
+
+  const refreshMerchants = useCallback(async () => {
+    try {
+      const status = await getOfflineStatus();
+      commit((current) => {
+        const merchants = seedMerchants(status.merchants);
+        const merchant = merchants.find((shop) => shop.ref === current.merchant.ref) || merchants[0];
+        return {
+          ...current,
+          merchants,
+          merchant,
+          traderBalance: merchant.balance || 0,
+          publicKey: status.issuerPublicKey || current.publicKey,
+        };
+      });
+    } catch {
+      // Keep the last balances if the status call fails.
+    }
+  }, []);
 
   function pressKey(key) {
     commit((current) => {
@@ -411,15 +563,15 @@ export function DemoProvider({ children }) {
   async function setAside() {
     const current = stateRef.current;
     if (current.network !== 'online') {
-      notice('Go online to set aside an allowance. The tokens are signed while the network is up.');
+      notice('Switch Network to Online first. The allowance is signed while the signal is up, then you can go offline.');
       return;
     }
     if (!current.wallet?.token) {
-      notice('The Zamtel Kwacha wallet is not loaded yet.');
+      notice('The Zamtel Kwacha wallet is not loaded yet. Start the API, then refresh this page.');
       return;
     }
     if (current.allowance) {
-      notice('An allowance is already set aside.');
+      notice('An allowance is already set aside. Use the taps that are left, or restart the API to start again.');
       return;
     }
     if (openingRef.current) return;
@@ -444,6 +596,7 @@ export function DemoProvider({ children }) {
           lastSettledCounter: 0,
           tokens: data.tokens.map((token) => ({ ...token, used: false })),
         },
+        nextCue: 'Allowance ready. Switch Network to Offline, enter an amount, then press Take payment.',
         customer: { ...latest.customer, screen: 'home' },
       }));
     } catch (err) {
@@ -471,11 +624,11 @@ export function DemoProvider({ children }) {
       return;
     }
     if (!current.allowance) {
-      notice('Set aside an offline allowance on the customer phone while you are online.');
+      notice('Set aside an allowance on the customer phone while Network is Online. Then you can take a payment.');
       return;
     }
     if (!current.publicKey) {
-      notice('Go online once so this till can collect the issuer public key.');
+      notice('Switch Network to Online once so this till can collect the issuer public key. Then you can go offline.');
       return;
     }
     const amountCents = amountCentsOf(current.till.amount);
@@ -485,7 +638,7 @@ export function DemoProvider({ children }) {
     }
     const token = nextToken(current.allowance, current.allowance.lastLocalCounter || 0);
     if (!token) {
-      notice('No offline tokens left. The batch is used up.');
+      notice('No tokens left in this batch. Restart the API, refresh, and set aside a new allowance.');
       return;
     }
     if (amountCents > current.allowance.remainingCents) {
@@ -504,7 +657,8 @@ export function DemoProvider({ children }) {
     acceptLock.current = true;
     try {
       // Local checks only. This function does not call the API.
-      const sale = await buildSale(token, amountCents);
+      const shop = current.merchant;
+      const sale = await buildSale(token, amountCents, shop);
       const signatureOk = await verifyTokenSignature(current.publicKey, token);
       if (!signatureOk) {
         commit((latest) => ({
@@ -523,7 +677,7 @@ export function DemoProvider({ children }) {
         amountCents,
         currency: token.currency,
         allowanceId: token.allowanceId,
-        merchantRef: MERCHANT_REF,
+        merchantRef: shop.ref,
       });
       if (expectedMac !== sale.spendMac) {
         commit((latest) => ({
@@ -575,9 +729,13 @@ export function DemoProvider({ children }) {
         const stamped = { ...sale, offline };
         queuedSale = stamped;
         const left = formatK(remainingCents / 100);
+        const shopName = shop.name;
         return {
           ...latest,
           notice: '',
+          nextCue: offline
+            ? `Saved for ${shopName}. Switch Network to Online when you want this sale to settle.`
+            : `Checked on the phone. Settling to ${shopName}.`,
           allowance,
           queue: [...latest.queue, stamped],
           ledger: [...latest.ledger, ledgerFrom(stamped, { offline, via })],
@@ -585,7 +743,7 @@ export function DemoProvider({ children }) {
             id: `local_${stamped.localId}`,
             from: 'ZAMTEL KWACHA',
             at: stamped.at,
-            body: `You paid ${formatK(amountCents / 100)} to Mutale Store offline. Ref ${ref}. It will appear in your history once the network is back. Allowance left: ${left}.`,
+            body: `You paid ${formatK(amountCents / 100)} to ${shopName}. Ref ${ref}. It will appear in your history once the network is back. Allowance left: ${left}.`,
           }, ...latest.sms],
           till: {
             ...latest.till,
@@ -596,6 +754,7 @@ export function DemoProvider({ children }) {
               ref,
               payer: `Kwacha ···${latest.wallet?.last4 || '4401'}`,
               via,
+              merchantName: shopName,
             },
           },
           customer: {
@@ -605,6 +764,7 @@ export function DemoProvider({ children }) {
               amount: amountCents / 100,
               allowanceLeft: remainingCents / 100,
               ref,
+              merchantName: shopName,
             },
           },
         };
@@ -623,13 +783,18 @@ export function DemoProvider({ children }) {
 
   function beginTap() {
     const current = stateRef.current;
+    if (!current.allowance) {
+      notice('Set aside an allowance on the customer phone first. Network has to be Online for that step.');
+      return;
+    }
     if (!amountCentsOf(current.till.amount)) {
-      notice('Enter an amount greater than zero.');
+      notice('Enter an amount greater than zero, then press Take payment.');
       return;
     }
     commit((latest) => ({
       ...latest,
       notice: '',
+      nextCue: `Waiting for a tap at ${latest.merchant.name}. On the customer phone, press Tap to pay. Or press Scan QR instead.`,
       till: { ...latest.till, phase: 'wait', localError: '' },
     }));
   }
@@ -646,6 +811,7 @@ export function DemoProvider({ children }) {
       ...latest,
       till: { ...latest.till, phase: 'amount', localError: '', fresh: true },
       customer: { ...latest.customer, screen: 'home' },
+      nextCue: `Ready for another sale at ${latest.merchant.name}. Enter an amount, then press Take payment.`,
     }));
   }
 
@@ -694,19 +860,37 @@ export function DemoProvider({ children }) {
         : latest.allowance,
     }));
     if (networkRef.current === 'online') await syncNow(queueRef.current);
-    else notice('Saved on this phone. Turn the network on and it will sync.');
+    else notice('Saved on this phone. Switch Network to Online and the server will check it.');
   }
 
   async function runAttack(kind) {
     const current = stateRef.current;
     if (!current.allowance) {
-      notice('Set aside an allowance before running a security check.');
+      notice('Set aside an allowance before a security check. Do that on the customer phone while Network is Online.');
+      return;
+    }
+    if (kind === 'redirect') {
+      const prior = [...current.ledger].reverse().find((row) => row.payload && !row.attack)
+        || [...current.ledger].reverse().find((row) => row.payload);
+      if (!prior) {
+        notice('Make a sale first. Then send that token to another shop to see it blocked.');
+        return;
+      }
+      const other = MERCHANTS.find((shop) => shop.ref !== prior.payload.merchantRef) || MERCHANTS[1];
+      const sale = {
+        ...prior.payload,
+        localId: nextLocalId(),
+        at: new Date().toISOString(),
+        merchantRef: other.ref,
+        merchantName: other.name,
+      };
+      await queueAttackSale(sale, 'redirect');
       return;
     }
     if (kind === 'replay') {
       const prior = [...current.ledger].reverse().find((row) => row.payload);
       if (!prior) {
-        notice('Make a sale first, then replay its token.');
+        notice('Make a sale first, then replay its token to see the block.');
         return;
       }
       const sale = {
@@ -720,17 +904,17 @@ export function DemoProvider({ children }) {
     if (kind === 'tamper') {
       const token = nextToken(current.allowance, current.allowance.lastLocalCounter || 0);
       if (!token) {
-        notice('No unused token left to tamper with.');
+        notice('No unused token left. Set aside a new allowance after restarting the API, then try this check.');
         return;
       }
-      const honest = await buildSale(token, 1000);
+      const honest = await buildSale(token, 1000, current.merchant);
       const tampered = { ...honest, amount: '40.00' };
       await queueAttackSale(tampered, 'tamper');
       return;
     }
     if (kind === 'rollback') {
       if (current.network !== 'online') {
-        notice('Turn the network on. The counter check runs when the sale reaches the server.');
+        notice('Switch Network to Online. The counter check runs when the sale reaches the server.');
         return;
       }
       if (syncingRef.current) {
@@ -745,18 +929,18 @@ export function DemoProvider({ children }) {
         .filter((token) => !token.used)
         .sort((a, b) => a.counter - b.counter);
       if (unused.length < 2) {
-        notice('This check needs two unused tokens.');
+        notice('This check needs two unused tokens. Take fewer sales, or restart the API and set aside a new allowance.');
         return;
       }
       if (current.allowance.remainingCents < 3000) {
-        notice('Not enough allowance left for this check.');
+        notice('Not enough allowance left. This check needs K30.00 still set aside.');
         return;
       }
       const low = unused[0];
       const high = unused[1];
       try {
-        const saleHigh = await buildSale(high, 1500);
-        const saleLow = await buildSale(low, 1500);
+        const saleHigh = await buildSale(high, 1500, current.merchant);
+        const saleLow = await buildSale(low, 1500, current.merchant);
         commit((latest) => ({
           ...latest,
           syncing: true,
@@ -774,12 +958,13 @@ export function DemoProvider({ children }) {
             ledgerFrom(saleLow, { attack: 'rollback' }),
           ],
         }));
-        const first = await syncOfflineSales([wireSale(saleHigh)]);
-        const second = await syncOfflineSales([wireSale(saleLow)]);
+        const first = await syncOfflineSales([wireSale(saleHigh)], saleHigh.merchantRef);
+        const second = await syncOfflineSales([wireSale(saleLow)], saleLow.merchantRef);
         const combined = {
           settled: [...first.settled, ...second.settled],
           blocked: [...first.blocked, ...second.blocked],
           trader: second.trader,
+          merchants: second.merchants,
           customer: second.customer,
           allowance: second.allowance,
           sms: [...(first.sms || []), ...(second.sms || [])],
@@ -815,30 +1000,70 @@ export function DemoProvider({ children }) {
     });
   }
 
+  function patchShop(current, patch) {
+    const ref = current.merchant.ref;
+    const prev = current.shopBooks[ref] || { invoiceIssued: false, taxFiled: false };
+    return {
+      ...current.shopBooks,
+      [ref]: { ...prev, ...patch },
+    };
+  }
+
   function setTaxRate(value) {
     const rate = Math.min(30, Math.max(0, Number(value)));
     if (!Number.isFinite(rate)) return;
-    commit((current) => ({ ...current, taxRate: rate, taxFiled: false }));
+    commit((current) => ({
+      ...current,
+      taxRate: rate,
+      shopBooks: patchShop(current, { taxFiled: false }),
+    }));
   }
 
   function setTaxThreshold(value) {
     const threshold = Math.min(1000000, Math.max(0, Number(value)));
     if (!Number.isFinite(threshold)) return;
-    commit((current) => ({ ...current, taxThreshold: threshold, taxFiled: false }));
+    commit((current) => ({
+      ...current,
+      taxThreshold: threshold,
+      shopBooks: patchShop(current, { taxFiled: false }),
+    }));
   }
 
   function issueInvoice() {
-    commit((current) => ({ ...current, invoiceIssued: true }));
+    const current = stateRef.current;
+    const count = current.ledger.filter((row) => (
+      (row.merchantRef || MERCHANT_REF) === current.merchant.ref
+      && (row.status === 'settled' || row.status === 'queued')
+    )).length;
+    if (!count) {
+      notice(`No sales for ${current.merchant.name} yet. Take a payment on the Sale screen, then issue the invoice.`);
+      return;
+    }
+    commit((latest) => ({
+      ...latest,
+      notice: '',
+      nextCue: `Invoice draft queued on this phone for ${latest.merchant.name}. Nothing was sent to ZRA.`,
+      shopBooks: patchShop(latest, { invoiceIssued: true }),
+    }));
   }
 
   function fileTaxDemo() {
-    commit((current) => ({ ...current, taxFiled: true }));
+    commit((current) => ({
+      ...current,
+      nextCue: `Example filing noted for ${current.merchant.name}. No return was sent and no money moved.`,
+      shopBooks: patchShop(current, { taxFiled: true }),
+    }));
   }
 
   const savedCount = state.queue.length;
+  const shopFlags = state.shopBooks[state.merchant.ref] || { invoiceIssued: false, taxFiled: false };
   const value = {
     ...state,
+    invoiceIssued: shopFlags.invoiceIssued,
+    taxFiled: shopFlags.taxFiled,
     savedCount,
+    selectMerchant,
+    refreshMerchants,
     setNetwork,
     pressKey,
     setAllowanceChoice,

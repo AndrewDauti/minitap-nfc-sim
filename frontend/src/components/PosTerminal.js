@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { MERCHANT, formatMoney, moneyParts } from './cardCatalog';
+import { formatMoney, moneyParts } from './cardCatalog';
 import { Contactless, StatusMark } from './icons';
 import SecurityTrace from './SecurityTrace';
 
@@ -20,6 +20,7 @@ export default function PosTerminal({
   labEnabled,
   onReplay,
   onTamper,
+  merchant = { name: 'Mutale Store', place: 'Lusaka', category: 'Groceries' },
 }) {
   const screenKey = phase === 'tapping' ? 'ready' : phase;
   const showRipples = !reduced && (phase === 'tapping' || phase === 'processing');
@@ -57,6 +58,9 @@ export default function PosTerminal({
           <span className="screen-figure">{shown.number}</span>
         </p>
         {balanceAfter && <p className="screen-hint">Balance {balanceAfter}</p>}
+        {receipt?.data?.merchant?.name && (
+          <p className="screen-hint">Credited to {receipt.data.merchant.name}</p>
+        )}
       </>
     );
   } else if (screenKey === 'declined') {
@@ -75,8 +79,8 @@ export default function PosTerminal({
     copy = (
       <>
         <p className="screen-kicker">MINITAP</p>
-        <p className="screen-merchant">{MERCHANT.name}</p>
-        <p className="screen-place">{MERCHANT.place}</p>
+        <p className="screen-merchant">{merchant.name}</p>
+        <p className="screen-place">{merchant.category ? `${merchant.category} · ${merchant.place}` : merchant.place}</p>
         <p className="screen-amount">
           <span className={symbolClass}>{shown.prefix}</span>
           <span className="screen-figure">{shown.number}</span>

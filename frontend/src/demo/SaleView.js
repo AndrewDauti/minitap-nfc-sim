@@ -1,6 +1,20 @@
 import { formatK, tokenRef } from './offlineCrypto';
 import { useDemo } from './DemoContext';
+import Hint from './Hint';
 import { Keypad, NetChip, Phone, QrMark, typedAmount } from './Phone';
+
+function tillLive(demo) {
+  const { till, merchant } = demo;
+  if (till.phase === 'secured' && till.secured) {
+    return `${formatK(till.secured.amount)} secured for ${till.secured.merchantName || merchant.name}.`;
+  }
+  if (till.phase === 'declined') return till.localError || 'This tap was refused on the phone.';
+  if (till.phase === 'sync' && till.sync) {
+    return `${till.sync.settledCount} of ${till.sync.totalCount} payments settled.`;
+  }
+  if (till.phase === 'wait') return `Waiting for a tap at ${merchant.name}.`;
+  return '';
+}
 
 function shortTime(iso) {
   const date = new Date(iso);
@@ -29,7 +43,7 @@ function CustomerPhone() {
         <div className="phone-body center-copy">
           <div className="check-badge" aria-hidden="true">✓</div>
           <p className="paid-kicker">Paid {formatK(customer.paid.amount)}</p>
-          <p className="muted-line">to Mutale Store · offline</p>
+          <p className="muted-line">to {customer.paid.merchantName || demo.merchant.name}</p>
           <dl className="detail-list">
             <div><dt>Allowance left</dt><dd>{formatK(customer.paid.allowanceLeft)}</dd></div>
             <div><dt>Shows in history</dt><dd>When online</dd></div>
@@ -103,7 +117,12 @@ function CustomerPhone() {
           {allowance ? (
             <div className="allow-card">
               <div>
-                <p>OFFLINE ALLOWANCE</p>
+                <p className="label-row">
+                  OFFLINE ALLOWANCE
+                  <Hint label="tokens">
+                    Each ready tap is one signed token with a counter and a spending cap. The till checks it on the phone. Sync checks it again.
+                  </Hint>
+                </p>
                 <strong>{formatK(remaining)}</strong>
                 <span>{tapsLeft} {tapsLeft === 1 ? 'tap' : 'taps'} ready</span>
               </div>
@@ -111,7 +130,12 @@ function CustomerPhone() {
             </div>
           ) : (
             <div className="allow-setup">
-              <p>OFFLINE ALLOWANCE</p>
+              <p className="label-row">
+                OFFLINE ALLOWANCE
+                <Hint label="the offline allowance">
+                  Do this while Network is Online. The amount is locked out of spendable balance and comes back as single-use tokens. Each tap uses one token.
+                </Hint>
+              </p>
               <div className="choice-row">
                 {[100, 300, 500].map((amount) => (
                   <button
@@ -165,7 +189,7 @@ function TraderPhone() {
         <div className="phone-body">
           <p className="charge-label">Charge customer</p>
           <p className="amount-xl"><span>K</span>{typedAmount(till.amount)}</p>
-          <p className="merchant-sub">Groceries · Mutale Store</p>
+          <p className="merchant-sub">{demo.merchant.category} · {demo.merchant.name}</p>
           <Keypad onKey={demo.pressKey} />
           {savedCount > 0 && (
             <p className="saved-line">
@@ -192,7 +216,11 @@ function TraderPhone() {
         <div className="phone-body center-copy">
           <div className="check-badge" aria-hidden="true">✓</div>
           <p className="secured-title">{formatK(till.secured.amount)} secured</p>
-          <p className="muted-line">Verified on this phone. Settles to Kwacha when signal returns.</p>
+          <p className="muted-line">
+            {demo.network === 'online'
+              ? `Verified on this phone. Settling to ${till.secured.merchantName || demo.merchant.name}.`
+              : `Verified on this phone. Switch Network to Online to settle to ${till.secured.merchantName || demo.merchant.name}.`}
+          </p>
           <dl className="detail-list">
             <div><dt>Payer</dt><dd>{till.secured.payer}</dd></div>
             <div><dt>Token</dt><dd>{till.secured.ref}</dd></div>
@@ -260,15 +288,16 @@ export default function SaleView() {
         <p className="eyebrow">Trader app · offline sale</p>
         <h1>Selling with zero bars.</h1>
         <p>
-          The till never blocks a sale. The trader can see that the phone is offline, and that the money is safe.
+          Pick a shop above, set aside an allowance while you are online, then take a payment. The till shows when the phone is offline and when the money is safe.
         </p>
       </header>
       {demo.apiOnline === false && (
-        <p className="demo-notice" role="status">
-          Backend unreachable on port 5000. Start it, then refresh this page.
+        <p className="demo-notice" role="alert">
+          The till cannot reach the API on port 5000. In the backend folder run npm start, then refresh this page.
         </p>
       )}
-      {demo.notice && <p className="demo-notice" role="status">{demo.notice}</p>}
+      {demo.notice && <p className="demo-notice" role="alert">{demo.notice}</p>}
+      <p className="sr-only" aria-live="polite">{tillLive(demo)}</p>
       <div className="phone-row">
         <figure>
           <CustomerPhone />
@@ -288,7 +317,9 @@ export default function SaleView() {
           <p className="eyebrow">SMS receipts</p>
           <h2>Proof for people with no app.</h2>
           <p className="sms-note">Simulated messages. Nothing is sent to a real phone.</p>
-          {demo.sms.length === 0 && <p className="sms-empty">Messages appear here after a tap, and again when a sale settles.</p>}
+          {demo.sms.length === 0 && (
+            <p className="sms-empty">No messages yet. Set aside an allowance, then take a payment. A simulated SMS appears here.</p>
+          )}
           <div className="sms-list">
             {demo.sms.map((row) => (
               <article key={row.id}>
@@ -303,12 +334,18 @@ export default function SaleView() {
         <div>
           <p className="eyebrow">Security checks</p>
           <h2>Show a blocked sale.</h2>
-          <p>Clean taps above do not use these. Each one queues a bad sale so sync can refuse it.</p>
+          <p>
+            Clean taps above do not use these. Each one queues a bad sale so sync can refuse it.
+            <Hint label="security checks">
+              Make one good sale first. Replay copies that token. Change a saved amount edits the figure after signing. Roll a counter back sends an older token after a newer one. Send to another shop keeps the signature and changes the merchant.
+            </Hint>
+          </p>
         </div>
         <div className="judge-actions">
           <button type="button" onClick={() => demo.runAttack('replay')}>Replay a copied token</button>
           <button type="button" onClick={() => demo.runAttack('tamper')}>Change a saved amount</button>
           <button type="button" onClick={() => demo.runAttack('rollback')}>Roll a counter back</button>
+          <button type="button" onClick={() => demo.runAttack('redirect')}>Send a sale to another shop</button>
         </div>
       </section>
     </section>

@@ -62,7 +62,7 @@ export default function TransactionHistory({ revision }) {
           <span />
         </div>
       ) : ordered.length === 0 ? (
-        <p className="empty">No taps yet. Choose a card and tap to pay.</p>
+        <p className="empty">No taps yet. Open Classroom till, choose a shop and a card, then tap to pay.</p>
       ) : (
         <ul className="tx-scroll">
           <AnimatePresence initial={false}>
@@ -93,6 +93,9 @@ export default function TransactionHistory({ revision }) {
                     <time dateTime={tx.timestamp}>{formatWhen(tx.timestamp)}</time>
                     {typeof tx.riskScore === 'number' && (
                       <span>{` · risk ${tx.riskScore}`}</span>
+                    )}
+                    {tx.merchantName && (
+                      <span>{` · ${tx.merchantName}`}</span>
                     )}
                   </p>
                   {status === 'declined' && tx.reason ? (

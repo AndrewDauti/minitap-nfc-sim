@@ -1,5 +1,6 @@
-import { formatK } from './offlineCrypto';
+import { formatK, MERCHANT_REF } from './offlineCrypto';
 import { useDemo } from './DemoContext';
+import Hint from './Hint';
 import { NetChip, Phone } from './Phone';
 
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -13,10 +14,13 @@ function dueLabel(date) {
   return next.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-function booksOf(ledger, now) {
-  const rows = ledger.filter((row) => row.status === 'settled' || row.status === 'queued');
+function booksOf(ledger, merchantRef, now) {
+  const rows = ledger.filter((row) => (
+    (row.merchantRef || MERCHANT_REF) === merchantRef
+    && (row.status === 'settled' || row.status === 'queued')
+  ));
   const total = rows.reduce((sum, row) => sum + Number(row.amount), 0);
-  const savedOffline = ledger.filter((row) => row.status === 'queued').length;
+  const savedOffline = rows.filter((row) => row.status === 'queued').length;
   const days = [0, 0, 0, 0, 0, 0, 0];
   rows.forEach((row) => {
     const date = new Date(row.at);
@@ -36,21 +40,25 @@ function taxDue(total, rate, threshold) {
 export default function BooksView() {
   const demo = useDemo();
   const now = new Date();
-  const books = booksOf(demo.ledger, now);
+  const books = booksOf(demo.ledger, demo.merchant.ref, now);
   const due = taxDue(books.total, demo.taxRate, demo.taxThreshold);
   const peak = Math.max(1, ...books.days);
   const online = demo.network === 'online';
   const month = monthName(now);
+  const lineName = demo.merchant.line || demo.merchant.category || 'Sale';
   const lines = books.rows.length
-    ? books.rows.map((row) => ({ id: row.localId, name: 'Groceries', amount: row.amount }))
+    ? books.rows.map((row) => ({ id: row.localId, name: lineName, amount: row.amount }))
     : [];
 
   return (
     <section className="demo-pane" aria-label="Books and tax">
       <header className="demo-intro">
         <p className="eyebrow">Trader app · free books and opt-in tax</p>
-        <h1>Every sale builds your books.</h1>
-        <p>Records come first and tax comes second. The trader owns the data and decides when to file.</p>
+        <h1>Books for {demo.merchant.name}.</h1>
+        <p>
+          These records, the invoice draft, and the example turnover tax are for the shop selected above.
+          Switch shops to see another set. Nothing here is filed with ZRA.
+        </p>
       </header>
       {demo.notice && <p className="demo-notice" role="status">{demo.notice}</p>}
       <div className="phone-row">
@@ -76,9 +84,13 @@ export default function BooksView() {
               </div>
               <dl className="detail-list">
                 <div><dt>Saved offline</dt><dd>{books.savedOffline} {books.savedOffline === 1 ? 'sale' : 'sales'}</dd></div>
-                <div><dt>Top item</dt><dd>{books.count ? 'Groceries' : 'None yet'}</dd></div>
+                <div><dt>Top item</dt><dd>{books.count ? lineName : 'None yet'}</dd></div>
               </dl>
-              <p className="muted-line">Built from queued and settled taps in this browser session.</p>
+              <p className="muted-line">
+                {books.count
+                  ? `Queued and settled taps for ${demo.merchant.name} in this browser session.`
+                  : `No sales for ${demo.merchant.name} yet. Go to Sale, take a payment for this shop, then come back.`}
+              </p>
             </div>
           </Phone>
           <figcaption>
@@ -96,7 +108,9 @@ export default function BooksView() {
             <div className="phone-body">
               <p className="section-label">BUYER TPIN</p>
               <p className="tpin">10XX XXX XXX</p>
-              {lines.length === 0 && <p className="muted-line">No lines yet. A tap adds groceries here.</p>}
+              {lines.length === 0 && (
+                <p className="muted-line">No lines yet. A tap at {demo.merchant.name} adds {lineName.toLowerCase()} here.</p>
+              )}
               <ul className="invoice-lines">
                 {lines.map((line) => (
                   <li key={line.id}><span>{line.name}</span><span>{formatK(line.amount)}</span></li>
@@ -161,7 +175,10 @@ export default function BooksView() {
                 <div><dt>Tax due</dt><dd>{formatK(due)}</dd></div>
               </dl>
               <p className="example-note">
-                Example values, not an official ZRA rate or threshold. Change them here. A live app would read both from ZRA.
+                Example values for {demo.merchant.name}, not an official ZRA rate or threshold. Change them here. A live app would read both from ZRA.
+                <Hint label="example turnover tax">
+                  The rate and threshold are editable sample figures. Filing on this screen does not send a return and does not move money.
+                </Hint>
               </p>
               <p className="muted-line">
                 {books.total >= demo.taxThreshold
@@ -188,8 +205,8 @@ export default function BooksView() {
             <p>
               This card is example copy, not a live forecast.
               {books.count
-                ? ` This session has ${books.count} ${books.count === 1 ? 'sale' : 'sales'}, ${formatK(books.total)}.`
-                : ' Make a sale and the session total shows here.'}
+                ? ` ${demo.merchant.name} has ${books.count} ${books.count === 1 ? 'sale' : 'sales'} in this session, ${formatK(books.total)}.`
+                : ` Take a payment for ${demo.merchant.name} and the session total shows here.`}
             </p>
           </article>
           <article className="insight-card">

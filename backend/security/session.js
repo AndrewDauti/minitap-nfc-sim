@@ -2,9 +2,9 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
 function createSessions(config) {
-  function issue() {
+  function issue(merchantRef = 'MUTALE') {
     const jti = crypto.randomBytes(16).toString('hex');
-    const token = jwt.sign({ role: 'terminal', jti }, config.jwtSecret, {
+    const token = jwt.sign({ role: 'terminal', jti, merchantRef }, config.jwtSecret, {
       expiresIn: config.jwtExpiresIn,
       issuer: 'minitap-sim',
       audience: 'minitap-terminal',
@@ -15,6 +15,7 @@ function createSessions(config) {
       token,
       expiresIn: Math.max(0, decoded.exp - decoded.iat),
       tokenType: 'Bearer',
+      merchantRef,
     };
   }
 
@@ -28,7 +29,10 @@ function createSessions(config) {
         audience: 'minitap-terminal',
       });
       if (payload.role !== 'terminal' || !payload.jti) return null;
-      return { jti: payload.jti, exp: payload.exp };
+      const merchantRef = typeof payload.merchantRef === 'string' && payload.merchantRef
+        ? payload.merchantRef
+        : 'MUTALE';
+      return { jti: payload.jti, exp: payload.exp, merchantRef };
     } catch {
       return null;
     }

@@ -11,6 +11,7 @@ const {
   canonicalSpend,
   spendMacFor,
   MERCHANT_REF,
+  MERCHANT_SEEDS,
   SPKI_PREFIX,
 } = require('../security/offline');
 
@@ -87,7 +88,7 @@ function assertNoPan(value) {
   assert.equal(text.includes(KEY1), false);
 }
 
-function saleFrom(token, amount) {
+function saleFrom(token, amount, merchantRef = MERCHANT_REF) {
   const amountCents = Math.round(Number(amount) * 100);
   const fields = {
     tokenId: token.tokenId,
@@ -95,7 +96,7 @@ function saleFrom(token, amount) {
     amountCents,
     currency: token.currency,
     allowanceId: token.allowanceId,
-    merchantRef: MERCHANT_REF,
+    merchantRef,
   };
   return {
     tokenId: token.tokenId,
@@ -104,11 +105,33 @@ function saleFrom(token, amount) {
     allowanceId: token.allowanceId,
     cardRef: token.cardRef,
     currency: token.currency,
-    merchantRef: MERCHANT_REF,
+    merchantRef,
     signature: token.signature,
     amount,
     spendMac: spendMacFor(token.spendKey, fields),
   };
+}
+
+function shopSeed(ref) {
+  return MERCHANT_SEEDS.find((shop) => shop.ref === ref);
+}
+
+function balanceOf(merchants, ref) {
+  const row = (merchants || []).find((shop) => shop.ref === ref);
+  assert.ok(row, `missing merchant ${ref}`);
+  return row.balance;
+}
+
+async function tillSession(base, ref) {
+  const shop = shopSeed(ref);
+  const session = await api(base, '/api/session', {
+    method: 'POST',
+    body: { merchantRef: ref, terminalCode: shop.terminalCode },
+  });
+  assert.equal(session.status, 200);
+  assert.equal(session.body.merchant.ref, ref);
+  assert.equal(JSON.stringify(session.body).includes(shop.terminalCode), false);
+  return session.body.token;
 }
 
 async function openAllowance(ctx, amount = 300) {
@@ -330,6 +353,10 @@ describe('offline allowance', { concurrency: 1 }, () => {
     const model = await api(live.base, '/api/security-model');
     assert.equal(model.status, 200);
     assert.match(model.body.offline.model, /Ed25519/);
+    assert.match(model.body.offline.model, /shop/);
+    assert.equal(model.body.offline.merchants.length, 3);
+    assert.equal(model.body.offline.merchants[0].name, 'Mutale Store');
+    assert.equal(JSON.stringify(model.body).includes('4417'), false);
     assert.equal(model.body.offline.taxExample.rate, 0.05);
     assert.match(model.body.offline.taxExample.note, /Not an official/);
 
@@ -347,5 +374,176 @@ describe('offline allowance', { concurrency: 1 }, () => {
     assert.match(client, /MINITAP-OFFLINE-TOKEN-v1/);
     assert.match(client, /MINITAP-OFFLINE-SPEND-v1/);
     assert.match(client, /MUTALE/);
+    assert.match(client, /BWALYA/);
+    assert.match(client, /TEMBO/);
+  });
+
+  test('each shop settles its own sales and keeps its own balance', async (t) => {
+    const ctx = await boot();
+    t.after(() => ctx.live.close());
+    const opened = await openAllowance(ctx, 300);
+    assert.equal(opened.status, 200);
+    const pharmacyPass = await tillSession(ctx.live.base, 'BWALYA');
+    const coachPass = await tillSession(ctx.live.base, 'TEMBO');
+    const [mutaleToken, pharmacyToken, coachToken] = opened.body.tokens;
+
+    const mutale = await sync(ctx, [saleFrom(mutaleToken, 25, 'MUTALE')]);
+    assert.equal(mutale.status, 200);
+    assert.equal(mutale.body.settled.length, 1);
+    assert.equal(mutale.body.settled[0].merchantRef, 'MUTALE');
+    assert.equal(mutale.body.trader.name, 'Mutale Store');
+    assert.equal(mutale.body.trader.balance, 25);
+    assert.equal(balanceOf(mutale.body.merchants, 'BWALYA'), 0);
+    assert.equal(balanceOf(mutale.body.merchants, 'TEMBO'), 0);
+    assert.match(mutale.body.sms[0].body, /Mutale Store/);
+
+    const pharmacy = await api(ctx.live.base, '/api/offline/sync', {
+      method: 'POST',
+      token: pharmacyPass,
+      body: { sales: [saleFrom(pharmacyToken, 40, 'BWALYA')] },
+    });
+    assert.equal(pharmacy.status, 200);
+    assert.equal(pharmacy.body.settled.length, 1);
+    assert.equal(pharmacy.body.trader.name, 'Bwalya Pharmacy');
+    assert.equal(pharmacy.body.trader.balance, 40);
+    assert.equal(balanceOf(pharmacy.body.merchants, 'MUTALE'), 25);
+    assert.equal(balanceOf(pharmacy.body.merchants, 'TEMBO'), 0);
+    assert.match(pharmacy.body.sms[0].body, /Bwalya Pharmacy/);
+
+    const coach = await api(ctx.live.base, '/api/offline/sync', {
+      method: 'POST',
+      token: coachPass,
+      body: { sales: [saleFrom(coachToken, 15, 'TEMBO')] },
+    });
+    assert.equal(coach.status, 200);
+    assert.equal(coach.body.settled[0].merchantName, 'Tembo Coach');
+    assert.equal(balanceOf(coach.body.merchants, 'MUTALE'), 25);
+    assert.equal(balanceOf(coach.body.merchants, 'BWALYA'), 40);
+    assert.equal(balanceOf(coach.body.merchants, 'TEMBO'), 15);
+    assert.equal(coach.body.customer.balance, 39920);
+    assert.equal(coach.body.allowance.remaining, 220);
+    assertNoPan(coach.body);
+
+    const refused = await api(ctx.live.base, '/api/session', {
+      method: 'POST',
+      body: { merchantRef: 'BWALYA', terminalCode: '0000' },
+    });
+    assert.equal(refused.status, 401);
+    assert.equal(refused.body.code, 'TILL_PASS');
+    const missing = await api(ctx.live.base, '/api/session', {
+      method: 'POST',
+      body: { merchantRef: 'TEMBO' },
+    });
+    assert.equal(missing.status, 401);
+    assert.equal(missing.body.code, 'TILL_PASS');
+  });
+
+  test('a sale captured at one shop cannot be replayed or redirected to another', async (t) => {
+    const ctx = await boot();
+    t.after(() => ctx.live.close());
+    const opened = await openAllowance(ctx, 300);
+    const pharmacyPass = await tillSession(ctx.live.base, 'BWALYA');
+    const captured = saleFrom(opened.body.tokens[0], 25, 'MUTALE');
+    const settled = await sync(ctx, [captured]);
+    assert.equal(settled.body.settled.length, 1);
+    assert.equal(settled.body.trader.balance, 25);
+
+    const redirected = { ...captured, merchantRef: 'BWALYA' };
+    const wrongShop = await api(ctx.live.base, '/api/offline/sync', {
+      method: 'POST',
+      token: pharmacyPass,
+      body: { sales: [redirected] },
+    });
+    assert.equal(wrongShop.status, 200);
+    assert.equal(wrongShop.body.settled.length, 0);
+    assert.equal(wrongShop.body.blocked.length, 1);
+    assert.equal(wrongShop.body.blocked[0].code, 'MERCHANT_MISMATCH');
+    assert.match(wrongShop.body.blocked[0].reason, /Mutale Store/);
+    assert.equal(wrongShop.body.trader.balance, 0);
+    assert.equal(balanceOf(wrongShop.body.merchants, 'MUTALE'), 25);
+    assert.equal(balanceOf(wrongShop.body.merchants, 'BWALYA'), 0);
+    assert.equal(wrongShop.body.customer.balance, 39975);
+    assert.match(wrongShop.body.sms[0].body, /wrong shop/);
+
+    const replayed = saleFrom(opened.body.tokens[0], 25, 'BWALYA');
+    const replay = await api(ctx.live.base, '/api/offline/sync', {
+      method: 'POST',
+      token: pharmacyPass,
+      body: { sales: [replayed] },
+    });
+    assert.equal(replay.body.settled.length, 0);
+    assert.equal(replay.body.blocked[0].code, 'REPLAY');
+    assert.equal(balanceOf(replay.body.merchants, 'MUTALE'), 25);
+    assert.equal(balanceOf(replay.body.merchants, 'BWALYA'), 0);
+    assert.equal(replay.body.customer.balance, 39975);
+
+    const waiting = saleFrom(opened.body.tokens[1], 10, 'MUTALE');
+    const claimed = await api(ctx.live.base, '/api/offline/sync', {
+      method: 'POST',
+      token: pharmacyPass,
+      body: { sales: [waiting] },
+    });
+    assert.equal(claimed.body.blocked[0].code, 'MERCHANT_MISMATCH');
+    assert.equal(balanceOf(claimed.body.merchants, 'MUTALE'), 25);
+    assert.equal(balanceOf(claimed.body.merchants, 'BWALYA'), 0);
+
+    const follow = await sync(ctx, [waiting]);
+    assert.equal(follow.body.settled.length, 1);
+    assert.equal(balanceOf(follow.body.merchants, 'MUTALE'), 35);
+    assert.equal(balanceOf(follow.body.merchants, 'BWALYA'), 0);
+    assert.equal(follow.body.customer.balance, 39965);
+    assertNoPan(follow.body);
+  });
+
+  test('an online kwacha tap credits the shop on the till pass', async (t) => {
+    const ctx = await boot();
+    t.after(() => ctx.live.close());
+    const pharmacyPass = await tillSession(ctx.live.base, 'BWALYA');
+    const kwacha = card(ctx.wallets, 'CARD001');
+    const dollar = card(ctx.wallets, 'CARD002');
+
+    async function tap(token, row, amount, currency) {
+      const proof = await api(ctx.live.base, '/api/tap/cryptogram', {
+        method: 'POST',
+        token: ctx.token,
+        body: { token: row.token, amount, currency },
+      });
+      assert.equal(proof.status, 200);
+      return api(ctx.live.base, '/api/tap', {
+        method: 'POST',
+        token,
+        body: {
+          token: proof.body.token,
+          amount: proof.body.amount,
+          currency: proof.body.currency,
+          atc: proof.body.atc,
+          nonce: proof.body.nonce,
+          cryptogram: proof.body.cryptogram,
+        },
+      });
+    }
+
+    const mutaleTap = await tap(ctx.token, kwacha, 10, 'ZMW');
+    assert.equal(mutaleTap.status, 200);
+    assert.equal(mutaleTap.body.merchant.ref, 'MUTALE');
+    assert.equal(mutaleTap.body.merchant.balance, 10);
+    assert.equal(mutaleTap.body.balanceAfter, 39990);
+
+    const pharmacyTap = await tap(pharmacyPass, kwacha, 20, 'ZMW');
+    assert.equal(pharmacyTap.status, 200);
+    assert.equal(pharmacyTap.body.merchant.ref, 'BWALYA');
+    assert.equal(pharmacyTap.body.merchant.balance, 20);
+
+    const dollarTap = await tap(ctx.token, dollar, 5, 'USD');
+    assert.equal(dollarTap.status, 200);
+    assert.equal(dollarTap.body.merchant, undefined);
+    assert.equal(dollarTap.body.balanceAfter, 2495);
+
+    const status = await api(ctx.live.base, '/api/offline/status', { token: ctx.token });
+    assert.equal(balanceOf(status.body.merchants, 'MUTALE'), 10);
+    assert.equal(balanceOf(status.body.merchants, 'BWALYA'), 20);
+    assert.equal(balanceOf(status.body.merchants, 'TEMBO'), 0);
+    assert.equal(JSON.stringify(status.body).includes(shopSeed('BWALYA').terminalCode), false);
+    assertNoPan(status.body);
   });
 });

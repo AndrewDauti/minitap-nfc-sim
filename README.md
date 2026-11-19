@@ -13,20 +13,29 @@ This is an educational model of how a contactless payment is protected. It is no
 
 The opening screen is a Zamtel Kwacha till that can take a sale with the network off. Payments are simulated. Nothing here charges a real wallet.
 
-1. Start the API and the frontend (the commands are below). Open [http://localhost:3000](http://localhost:3000).
-2. Leave the network toggle on **Online**. On the customer phone, set aside **K300**. That locks K300 out of the spendable balance and loads a batch of single-use tokens. Each token has a counter, a spending cap, and an issuer signature.
-3. Switch the network toggle to **Offline**. The phones show a red **OFFLINE** chip. Enter an amount on the till (K25.00 is ready), press **Take payment**, then **Tap to pay** on the customer phone. You can also use **Show my QR** and **Scan QR instead**.
-4. The till checks the signature, the counter, and the remaining allowance on the phone. It does not call the server. A good tap shows **K25.00 secured** and the amber line **1 sale saved · will sync automatically**.
-5. Switch the network back to **Online**. The queue uploads. Clean sales settle to Mutale Store. The till lists them as settled. A simulated SMS appears beside the phones.
-6. Open **Books** for the sales record, the offline invoice draft, and the turnover tax screen. The rate and threshold there are example values you can edit. They are not an official ZRA figure.
-7. Open **Network** for a partner view. The large cards are labelled example data. The strip at the top is this browser session.
-8. Open **How your tap stays safe** for the scroll story. It still walks through the classroom checks, and it now includes the allowance, the signed tokens, the counter, and the sync checks.
+1. Start the API and the frontend (the commands are below). Open [http://localhost:3000](http://localhost:3000). A short tip card opens on the first visit. Skip it, or press **Show tips** later to play it again.
+2. The shop picker sits above the phones. **Mutale Store** is selected by default. **Bwalya Pharmacy** and **Tembo Coach** are the other fixed shops. Each has its own till pass. The status line names the active shop, whether you are online, and what to do next. Press **?** beside Shop or Network if you want a longer hint.
+3. Leave the network toggle on **Online**. On the customer phone, set aside **K300**. That locks K300 out of the spendable balance and loads a batch of single-use tokens. Each token has a counter, a spending cap, and an issuer signature.
+4. Switch the network toggle to **Offline**. The phones show a red **OFFLINE** chip. Enter an amount on the till (K25.00 is ready), press **Take payment**, then **Tap to pay** on the customer phone. You can also use **Show my QR** and **Scan QR instead**.
+5. The till checks the signature, the counter, the shop, and the remaining allowance on the phone. It does not call the server. A good tap shows **K25.00 secured** and the amber line **1 sale saved · will sync automatically**.
+6. Switch the network back to **Online**. The queue uploads. Clean sales settle to the shop that took them. The till lists them as settled. A simulated SMS appears beside the phones. Pick another shop and repeat the sale if you want a second balance.
+7. Open **Books** for that shop's sales record, the offline invoice draft, and the turnover tax screen. Switch the shop picker to see another shop's books. The rate and threshold there are example values you can edit. They are not an official ZRA figure.
+8. Open **Network** for a partner view. The shop cards are this session. The large cards, the hour chart, and the market queue are labelled example data.
+9. Open **How your tap stays safe** for the scroll story. It walks through the classroom checks, including the allowance, the signed tokens, the counter, the sync checks, and the merchant binding.
 
-Under **Security checks**, three buttons show the failures: replay a copied token, change a saved amount, or roll a counter back. The till lists those as blocked.
+Under **Security checks**, four buttons show the failures: replay a copied token, change a saved amount, roll a counter back, or send a sale to another shop. The till lists those as blocked. The buttons say what to do if you have not made a sale yet.
 
 The classroom till, the activity list, and the scroll story are still in the header. Restarting the API clears balances, tokens, and the audit log. Refreshing the page keeps the customer tokens for this browser tab until the API restarts.
 
-While the phone is online, the server sets the allowance aside and signs each token with Ed25519. The private key stays on the server. The till keeps the public key. At the tap, the customer wallet also MACs the amount with a per-token spend key. The till checks that code, then drops the spend key, so a later edit of the queued amount cannot be re-signed. On sync the server repeats the signature check, the spend code, the counter, and the allowance. A copied token, a rolled-back counter, an edited amount, or a sale past the allowance is blocked and does not credit the trader.
+While the phone is online, the server sets the allowance aside and signs each token with Ed25519. The private key stays on the server. The till keeps the public key. At the tap, the customer wallet also MACs the amount and the shop with a per-token spend key. The till checks that code, then drops the spend key, so a later edit of the queued amount cannot be re-signed. On sync the server repeats the signature check, the spend code, the counter, the shop, and the allowance. A copied token, a rolled-back counter, an edited amount, a sale past the allowance, or a sale sent to another shop is blocked and does not credit that shop.
+
+| Shop | Id | Place | Till pass |
+| --- | --- | --- | --- |
+| Mutale Store | `MUTALE` | Lusaka | 4417 |
+| Bwalya Pharmacy | `BWALYA` | Kabwata | 9034 |
+| Tembo Coach | `TEMBO` | Intercity | 6621 |
+
+The till passes are classroom passwords, like the card PINs. An empty `POST /api/session` still opens Mutale Store, so older clients keep working. Naming another shop requires its till pass. Online Kwacha taps credit the shop on the pass. Dollar and franc taps do not.
 
 ### `POST /api/offline/allowance`
 
@@ -34,11 +43,11 @@ Needs the terminal pass. Body: `{ "token": "tok_…", "amount": 300 }`. The resp
 
 ### `POST /api/offline/sync`
 
-Needs the terminal pass. Body: `{ "sales": [ … ] }`. Each sale carries the token id, counter, cap, signature, amount, and spend code. Settled rows credit Mutale Store. Blocked rows include `REPLAY`, `TAMPERED_AMOUNT`, `COUNTER_ROLLBACK`, or `ALLOWANCE_EXCEEDED`.
+Needs the terminal pass for the shop that took the sale. Body: `{ "sales": [ … ] }`. Each sale carries the token id, counter, cap, signature, amount, spend code, and `merchantRef`. Settled rows credit that shop. A sale whose spend code was made for a different shop is `MERCHANT_MISMATCH` and does not move money. Other blocked rows include `REPLAY`, `TAMPERED_AMOUNT`, `COUNTER_ROLLBACK`, or `ALLOWANCE_EXCEEDED`.
 
 ### `GET /api/offline/status`
 
-Needs the terminal pass. Returns the public key, the trader balance, any open allowance, and the example tax rate. The tax note says the rate is not official.
+Needs the terminal pass. Returns the public key, every shop balance, the balance for the shop on this pass, any open allowance, and the example tax rate. The tax note says the rate is not official.
 
 ## Project structure
 
@@ -97,7 +106,7 @@ npm test
 
 The tests check that a replay is rejected, a changed amount is rejected, three wrong PINs lock the card, and the rate limit returns HTTP 429. They also check that responses do not contain a PAN, a card key, or a password hash.
 
-`test/offline.test.js` checks the offline allowance. A second sale past the allowance settles only the first. A token replayed on a later sync is rejected. An edited amount is rejected and does not move money. A counter lower than one already settled is rejected. An online tap cannot spend the locked allowance.
+`test/offline.test.js` checks the offline allowance. A second sale past the allowance settles only the first. A token replayed on a later sync is rejected. An edited amount is rejected and does not move money. A counter lower than one already settled is rejected. An online tap cannot spend the locked allowance. Sales to Mutale Store, Bwalya Pharmacy, and Tembo Coach settle on separate balances. A sale captured at one shop cannot be redirected or replayed onto another. An online Kwacha tap credits the shop on the till pass.
 
 ## Run the frontend
 
@@ -211,10 +220,12 @@ curl -s http://localhost:5000/api/security-model
 
 ### `POST /api/session`
 
-Issues a short-lived terminal pass.
+Issues a short-lived terminal pass. An empty body opens Mutale Store. Send `merchantRef` and `terminalCode` for another shop.
 
 ```bash
-curl -s -X POST http://localhost:5000/api/session
+curl -s -X POST http://localhost:5000/api/session \
+  -H "Content-Type: application/json" \
+  -d '{"merchantRef":"BWALYA","terminalCode":"9034"}'
 ```
 
 Copy `token` from the JSON into the header below.
@@ -302,16 +313,18 @@ Same pass as the other payment routes. Redacted events only.
 - Activity screen in the header, between Till and How your tap stays safe, with status, risk score, and a collapsed trace
 - Scroll story, "How your tap stays safe", with a pinned scene on desktop and on a phone-sized window
 - Offline allowance on Zamtel Kwacha, with a batch of single-use signed tokens
-- Till that verifies a tap locally while the network toggle is off, then syncs the queue
-- Sales record, example turnover tax, and a partner dashboard marked as example data
-- Reduced motion uses a normal list instead of pinning or 3D
+- Three fixed shops, Mutale Store, Bwalya Pharmacy, and Tembo Coach, each with a till pass and its own balance
+- Till that verifies a tap locally while the network toggle is off, then syncs the queue to the shop that took the sale
+- Sales record, example turnover tax, and a partner view with live shop totals plus example charts
+- Tips you can skip, and Show tips to play them again, plus short help on the shop picker, network toggle, allowance, and security checks
+- Reduced motion uses a normal list instead of pinning or 3D, and the tips do not animate
 - Layout for desktop and mobile
 
 ## The story page
 
 Open **How your tap stays safe** in the header. The introduction scrolls normally. The next section pins: the card and the reader stay in view while scroll progress moves a spiral of checks and crossfades the text. Scrolling back up reverses that motion. After the pinned section, the page scrolls normally again.
 
-The animation uses GSAP ScrollTrigger with `scrub`, so the scene follows the scrollbar. It does not capture the mouse wheel. On a small window the same pin runs with a shorter travel and a smaller spiral. If the operating system asks for reduced motion, the page is seven ordinary sections and nothing is pinned.
+The animation uses GSAP ScrollTrigger with `scrub`, so the scene follows the scrollbar. It does not capture the mouse wheel. On a small window the same pin runs with a shorter travel and a smaller spiral. If the operating system asks for reduced motion, the page is a normal list of sections and nothing is pinned.
 
 ## Interface
 
@@ -333,7 +346,6 @@ Approved, after a successful tap:
 
 - Persist wallets, audit events, and transactions past a process restart
 - Export a receipt for an approved tap
-- More than one merchant
 - Optional bridge from a hardware NFC reader
 
 ## License

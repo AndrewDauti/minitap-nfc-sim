@@ -4,13 +4,14 @@ const { parseCryptogramBody, parseAuthoriseBody } = require('../security/validat
 const { completeTrace } = require('../security/trace');
 const { sendPublic } = require('../security/redact');
 const { parseAllowanceBody, parseSyncBody, describeOffline } = require('../security/offline');
+const { findSeed, parseSessionBody, publicMerchant, terminalCodeMatches, MERCHANT_REF } = require('../security/merchants');
 
 function createController({ vault, sessions, chip, issuer, audit, offline, macSuite }) {
   const transactions = [];
 
   function requireSession(req, res, next) {
     const session = sessions.fromRequest(req);
-    if (!session) {
+    if (!session || !findSeed(session.merchantRef)) {
       return sendPublic(res, 401, {
         error: 'Terminal session required',
         code: 'SESSION_REQUIRED',
@@ -29,9 +30,35 @@ function createController({ vault, sessions, chip, issuer, audit, offline, macSu
   }
 
   function handleSession(req, res) {
-    const issued = sessions.issue();
-    audit.add({ event: 'session.issued', result: 'issued' });
-    return sendPublic(res, 200, issued);
+    const parsed = parseSessionBody(req.body);
+    if (!parsed.ok) {
+      return sendPublic(res, parsed.status, { error: parsed.error, code: parsed.code });
+    }
+    const seed = findSeed(parsed.value.merchantRef);
+    if (!seed) {
+      return sendPublic(res, 404, { error: 'Unknown trader', code: 'UNKNOWN_MERCHANT' });
+    }
+    if (parsed.value.terminalCode) {
+      if (!terminalCodeMatches(seed, parsed.value.terminalCode)) {
+        return sendPublic(res, 401, {
+          error: 'Till pass does not match this shop.',
+          code: 'TILL_PASS',
+        });
+      }
+    } else if (!parsed.value.implicit && seed.ref !== MERCHANT_REF) {
+      return sendPublic(res, 401, {
+        error: 'This shop needs its till pass.',
+        code: 'TILL_PASS',
+      });
+    }
+    const issued = sessions.issue(seed.ref);
+    audit.add({ event: 'session.issued', result: 'issued', merchantRef: seed.ref });
+    return sendPublic(res, 200, {
+      token: issued.token,
+      expiresIn: issued.expiresIn,
+      tokenType: issued.tokenType,
+      merchant: publicMerchant(seed),
+    });
   }
 
   function getModel(req, res) {
@@ -122,6 +149,16 @@ function createController({ vault, sessions, chip, issuer, audit, offline, macSu
     const outcome = issuer.authorise(parsed.value);
     audit.add(outcome.audit);
     const body = { ...outcome.body };
+    if (outcome.status === 200 && parsed.value.currency === 'ZMW') {
+      const credited = offline.creditMerchant(req.terminalSession.merchantRef, parsed.value.amountCents);
+      if (credited) {
+        body.merchant = credited;
+        if (outcome.record) {
+          outcome.record.merchantRef = credited.ref;
+          outcome.record.merchantName = credited.name;
+        }
+      }
+    }
     if (outcome.record) {
       const tx = {
         id: transactions.length + 1,
@@ -136,7 +173,7 @@ function createController({ vault, sessions, chip, issuer, audit, offline, macSu
   }
 
   function getOfflineStatus(req, res) {
-    return sendPublic(res, 200, offline.statusBody('CARD001'));
+    return sendPublic(res, 200, offline.statusBody('CARD001', req.terminalSession.merchantRef));
   }
 
   function openOfflineAllowance(req, res) {
@@ -158,7 +195,7 @@ function createController({ vault, sessions, chip, issuer, audit, offline, macSu
     if (!parsed.ok) {
       return sendPublic(res, 400, { error: parsed.error, code: 'VALIDATION' });
     }
-    const outcome = offline.settle(parsed.value);
+    const outcome = offline.settle(parsed.value, req.terminalSession.merchantRef);
     outcome.audits.forEach((entry) => audit.add(entry));
     return sendPublic(res, outcome.status, outcome.body);
   }

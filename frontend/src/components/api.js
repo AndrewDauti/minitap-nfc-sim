@@ -1,9 +1,12 @@
 // The browser holds a payment token and a short-lived terminal pass.
 // It never receives a PAN, a card key, or a PIN hash.
+// Each shop has its own pass. Mutale Store stays the default.
+
+import { MERCHANT_REF, merchantByRef } from '../demo/offlineCrypto';
 
 const API_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5000').replace(/\/$/, '');
 
-let sessionToken = null;
+const sessions = new Map();
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, options);
@@ -22,17 +25,25 @@ async function request(path, options = {}) {
   return data;
 }
 
-async function ensureSession() {
-  if (sessionToken) return sessionToken;
-  const data = await request('/api/session', { method: 'POST' });
+async function ensureSession(merchantRef = MERCHANT_REF) {
+  const key = merchantRef || MERCHANT_REF;
+  if (sessions.has(key)) return sessions.get(key);
+  const shop = merchantByRef(key);
+  const payload = { merchantRef: shop.ref, terminalCode: shop.terminalCode };
+  const data = await request('/api/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
   if (!data || !data.token) {
     throw new Error('Terminal session was not issued');
   }
-  sessionToken = data.token;
-  return sessionToken;
+  sessions.set(key, data.token);
+  return data.token;
 }
 
-async function authed(path, options = {}) {
+async function authed(path, options = {}, merchantRef = MERCHANT_REF) {
+  const key = merchantRef || MERCHANT_REF;
   const send = async (token) => request(path, {
     ...options,
     headers: {
@@ -41,12 +52,16 @@ async function authed(path, options = {}) {
     },
   });
   try {
-    return await send(await ensureSession());
+    return await send(await ensureSession(key));
   } catch (err) {
     if (err.status !== 401) throw err;
-    sessionToken = null;
-    return send(await ensureSession());
+    sessions.delete(key);
+    return send(await ensureSession(key));
   }
+}
+
+export function openTill(merchantRef) {
+  return ensureSession(merchantRef);
 }
 
 export const getTransactions = async () => {
@@ -81,14 +96,14 @@ export const createAllowance = ({ token, amount }) =>
     body: JSON.stringify({ token, amount }),
   });
 
-export const syncOfflineSales = (sales) =>
+export const syncOfflineSales = (sales, merchantRef = MERCHANT_REF) =>
   authed('/api/offline/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sales }),
-  });
+  }, merchantRef);
 
-export const authoriseTap = (payload) => {
+export const authoriseTap = (payload, merchantRef = MERCHANT_REF) => {
   const body = {
     token: payload.token,
     amount: payload.amount,
@@ -102,5 +117,5 @@ export const authoriseTap = (payload) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }, merchantRef || payload.merchantRef || MERCHANT_REF);
 };
