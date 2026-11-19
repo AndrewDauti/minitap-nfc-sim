@@ -1,6 +1,13 @@
 const crypto = require('crypto');
 const { fromCents } = require('./policy');
 const { parseAmount } = require('./validate');
+const {
+  MERCHANT_SEEDS,
+  MERCHANT_REF,
+  MERCHANT_REFS,
+  findSeed,
+  publicMerchant,
+} = require('./merchants');
 
 // Classroom stand-in for an issuer-signed offline token.
 // The Ed25519 private key never leaves this module. The till receives the
@@ -12,8 +19,7 @@ const { parseAmount } = require('./validate');
 const TOKEN_BATCH = 8;
 const MIN_ALLOWANCE_CENTS = 100;
 const MAX_ALLOWANCE_CENTS = 500000;
-const MERCHANT_REF = 'MUTALE';
-const MERCHANT_NAME = 'Mutale Store';
+const MERCHANT_NAME = findSeed(MERCHANT_REF).name;
 
 const TAX_EXAMPLE = {
   rate: 0.05,
@@ -73,11 +79,15 @@ function createOffline({ vault }) {
   const spki = publicKey.export({ format: 'der', type: 'spki' });
   const issuerPublicKey = spki.subarray(spki.length - 32).toString('hex');
 
-  const trader = {
-    name: MERCHANT_NAME,
+  const merchants = MERCHANT_SEEDS.map((seed) => ({
+    ref: seed.ref,
+    name: seed.name,
+    place: seed.place,
+    category: seed.category,
+    line: seed.line,
     balanceCents: 0,
     currency: 'ZMW',
-  };
+  }));
   const allowances = new Map();
   const byCard = new Map();
   let smsSeq = 0;
@@ -126,22 +136,35 @@ function createOffline({ vault }) {
     };
   }
 
-  function statusBody(cardRef = 'CARD001') {
+  function shopByRef(ref) {
+    return merchants.find((shop) => shop.ref === ref) || null;
+  }
+
+  function merchantList() {
+    return merchants.map((shop) => publicMerchant(shop, {
+      balance: money(shop.balanceCents),
+      currency: shop.currency,
+    }));
+  }
+
+  function traderView(ref) {
+    const shop = shopByRef(ref) || shopByRef(MERCHANT_REF);
+    return {
+      name: shop.name,
+      balance: money(shop.balanceCents),
+      currency: shop.currency,
+    };
+  }
+
+  function statusBody(cardRef = 'CARD001', merchantRef = MERCHANT_REF) {
     const card = cardByRef(cardRef);
     const record = byCard.has(cardRef) ? allowances.get(byCard.get(cardRef)) : null;
+    const shop = shopByRef(merchantRef) || shopByRef(MERCHANT_REF);
     return {
       issuerPublicKey,
-      merchant: {
-        ref: MERCHANT_REF,
-        name: MERCHANT_NAME,
-        place: 'Lusaka',
-        category: 'Groceries',
-      },
-      trader: {
-        name: trader.name,
-        balance: money(trader.balanceCents),
-        currency: trader.currency,
-      },
+      merchant: publicMerchant(shop),
+      merchants: merchantList(),
+      trader: traderView(shop.ref),
       customer: customerView(card),
       allowance: allowanceView(record),
       taxExample: TAX_EXAMPLE,
@@ -233,7 +256,17 @@ function createOffline({ vault }) {
     };
   }
 
-  function settle(sales) {
+  function creditMerchant(merchantRef, amountCents) {
+    const shop = shopByRef(merchantRef);
+    if (!shop || !Number.isInteger(amountCents) || amountCents <= 0) return null;
+    shop.balanceCents += amountCents;
+    return publicMerchant(shop, {
+      balance: money(shop.balanceCents),
+      currency: shop.currency,
+    });
+  }
+
+  function settle(sales, sessionMerchantRef = MERCHANT_REF) {
     const settled = [];
     const blocked = [];
     const ordered = sales
@@ -241,7 +274,7 @@ function createOffline({ vault }) {
       .sort((a, b) => a.sale.counter - b.sale.counter || a.index - b.index);
 
     ordered.forEach(({ sale }) => {
-      const outcome = decide(sale);
+      const outcome = decide(sale, sessionMerchantRef);
       if (outcome.ok) {
         applySettle(outcome);
         settled.push(outcome.public);
@@ -268,11 +301,8 @@ function createOffline({ vault }) {
       body: {
         settled,
         blocked,
-        trader: {
-          name: trader.name,
-          balance: money(trader.balanceCents),
-          currency: trader.currency,
-        },
+        trader: traderView(sessionMerchantRef),
+        merchants: merchantList(),
         customer: customerView(card),
         allowance: allowanceView(record),
         sms,
@@ -291,12 +321,26 @@ function createOffline({ vault }) {
     };
   }
 
-  function decide(sale) {
+  function macFor(sale, merchantRef) {
+    return spendMacFor(sale.spendKey || '', {
+      tokenId: sale.tokenId,
+      counter: sale.counter,
+      amountCents: sale.amountCents,
+      currency: sale.currency,
+      allowanceId: sale.allowanceId,
+      merchantRef,
+    });
+  }
+
+  function decide(sale, sessionMerchantRef) {
+    const shop = shopByRef(sale.merchantRef);
     const base = {
       tokenId: sale.tokenId,
       counter: sale.counter,
       amount: money(sale.amountCents),
       currency: sale.currency || 'ZMW',
+      merchantRef: sale.merchantRef,
+      merchantName: shop ? shop.name : sale.merchantRef,
     };
     const allowance = allowances.get(sale.allowanceId);
     if (!allowance || allowance.cardRef !== sale.cardRef) {
@@ -327,21 +371,38 @@ function createOffline({ vault }) {
       return block(base, 'BAD_SIGNATURE', 'The signed fields do not match the issued token.', 97);
     }
 
-    const expectedMac = spendMacFor(token.spendKey, {
-      tokenId: sale.tokenId,
-      counter: sale.counter,
-      amountCents: sale.amountCents,
-      currency: sale.currency,
-      allowanceId: sale.allowanceId,
-      merchantRef: sale.merchantRef,
-    });
-    if (!macEqual(expectedMac, sale.spendMac)) {
+    const presentedMac = macFor({ ...sale, spendKey: token.spendKey }, sale.merchantRef);
+    if (!macEqual(presentedMac, sale.spendMac)) {
+      const bound = merchants.find((candidate) => (
+        candidate.ref !== sale.merchantRef
+        && macEqual(macFor({ ...sale, spendKey: token.spendKey }, candidate.ref), sale.spendMac)
+      ));
+      if (bound) {
+        return block(
+          base,
+          'MERCHANT_MISMATCH',
+          `This sale was signed for ${bound.name}. It cannot be sent to another shop. You were not charged.`,
+          95,
+          { token, allowance }
+        );
+      }
       return block(
         base,
         'TAMPERED_AMOUNT',
         'The amount does not match the code signed at the till. You were not charged.',
         96,
         { burn: true, token, allowance }
+      );
+    }
+
+    if (sale.merchantRef !== sessionMerchantRef) {
+      const signedFor = shop ? shop.name : 'the shop that took it';
+      return block(
+        base,
+        'MERCHANT_MISMATCH',
+        `This till pass is for another shop. The sale stays with ${signedFor}. You were not charged.`,
+        95,
+        { token, allowance }
       );
     }
 
@@ -426,7 +487,8 @@ function createOffline({ vault }) {
       card.balanceCents -= sale.amountCents;
       card.lockedCents = Math.max(0, (card.lockedCents || 0) - sale.amountCents);
     }
-    trader.balanceCents += sale.amountCents;
+    const shop = shopByRef(sale.merchantRef);
+    if (shop) shop.balanceCents += sale.amountCents;
   }
 
   function buildSms(settledRows, blockedRows, card) {
@@ -441,7 +503,7 @@ function createOffline({ vault }) {
         id: `sms_${smsSeq}`,
         from: 'ZAMTEL KWACHA',
         kind: 'settled',
-        body: `Settled: ${formatKwacha(amountCents)} to ${MERCHANT_NAME}. New balance ${formatKwacha(running)}.`,
+        body: `Settled: ${formatKwacha(amountCents)} to ${row.merchantName || MERCHANT_NAME}. New balance ${formatKwacha(running)}.`,
       });
     });
     blockedRows.forEach((row) => {
@@ -461,6 +523,7 @@ function createOffline({ vault }) {
     statusBody,
     openAllowance,
     settle,
+    creditMerchant,
     verifySignature,
   };
 }
@@ -521,6 +584,7 @@ function blockedSms(code) {
   if (code === 'COUNTER_ROLLBACK') return 'a token counter was rolled back. You were not charged.';
   if (code === 'ALLOWANCE_EXCEEDED') return 'the sale was over the offline allowance. You were not charged.';
   if (code === 'BAD_SIGNATURE') return 'a token signature did not match. You were not charged.';
+  if (code === 'MERCHANT_MISMATCH') return 'a sale was sent to the wrong shop. You were not charged.';
   return 'the sale was refused. You were not charged.';
 }
 
@@ -576,7 +640,7 @@ function parseSale(raw) {
   if (raw.currency !== 'ZMW') {
     return { ok: false, error: 'Offline sales use ZMW' };
   }
-  if (raw.merchantRef !== MERCHANT_REF) {
+  if (typeof raw.merchantRef !== 'string' || !MERCHANT_REFS.has(raw.merchantRef)) {
     return { ok: false, error: 'Unknown trader' };
   }
   if (typeof raw.signature !== 'string' || !/^[a-f0-9]{128}$/i.test(raw.signature)) {
@@ -598,7 +662,7 @@ function parseSale(raw) {
       allowanceId: raw.allowanceId,
       cardRef: raw.cardRef,
       currency: 'ZMW',
-      merchantRef: MERCHANT_REF,
+      merchantRef: raw.merchantRef,
       signature: raw.signature.toLowerCase(),
       spendMac: raw.spendMac.toLowerCase(),
       amountCents,
@@ -609,10 +673,11 @@ function parseSale(raw) {
 function describeOffline() {
   return {
     offline: {
-      model: 'Ed25519 signed single-use tokens. Each token has a monotonic counter, a spending cap, and an HMAC spend code over the amount.',
+      model: 'Ed25519 signed single-use tokens. Each token has a monotonic counter, a spending cap, and an HMAC spend code over the amount and the shop.',
       batchSize: TOKEN_BATCH,
       merchant: MERCHANT_NAME,
-      note: 'The private key stays on the server. A till can verify the public signature, the counter, and the remaining allowance with no network call. Sync rejects a replay, a tampered amount, a rolled-back counter, and a sale past the allowance.',
+      merchants: MERCHANT_SEEDS.map((seed) => publicMerchant(seed)),
+      note: 'The private key stays on the server. A till can verify the public signature, the counter, and the remaining allowance with no network call. Sync rejects a replay, a tampered amount, a rolled-back counter, a sale past the allowance, and a sale redirected to another shop.',
       taxExample: TAX_EXAMPLE,
     },
   };
@@ -622,6 +687,7 @@ module.exports = {
   TOKEN_BATCH,
   MERCHANT_REF,
   MERCHANT_NAME,
+  MERCHANT_SEEDS,
   TAX_EXAMPLE,
   SPKI_PREFIX,
   canonicalToken,

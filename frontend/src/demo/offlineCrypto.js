@@ -1,7 +1,38 @@
-// Keep these strings in step with backend/security/offline.js.
+// Keep these strings in step with backend/security/merchants.js and offline.js.
 // The till verifies a token on the phone. This file does not call the network.
 
 export const MERCHANT_REF = 'MUTALE';
+
+export const MERCHANTS = [
+  {
+    ref: 'MUTALE',
+    name: 'Mutale Store',
+    place: 'Lusaka',
+    category: 'Groceries',
+    line: 'Groceries',
+    terminalCode: '4417',
+  },
+  {
+    ref: 'BWALYA',
+    name: 'Bwalya Pharmacy',
+    place: 'Kabwata',
+    category: 'Pharmacy',
+    line: 'Pharmacy',
+    terminalCode: '9034',
+  },
+  {
+    ref: 'TEMBO',
+    name: 'Tembo Coach',
+    place: 'Intercity',
+    category: 'Bus fare',
+    line: 'Bus fare',
+    terminalCode: '6621',
+  },
+];
+
+export function merchantByRef(ref) {
+  return MERCHANTS.find((shop) => shop.ref === ref) || MERCHANTS[0];
+}
 
 export function canonicalToken({ tokenId, counter, capCents, allowanceId, cardRef, currency }) {
   return [

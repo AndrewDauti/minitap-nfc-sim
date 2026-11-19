@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
 import { authoriseTap, getWallets, issueCryptogram } from './api';
+import { useDemo } from '../demo/DemoContext';
+import MerchantPicker from '../demo/MerchantPicker';
 import { CARD_CATALOG, CARD_ORDER, formatMoney, moneyParts, sanitizeAmount } from './cardCatalog';
 import PaymentCard from './PaymentCard';
 import PosTerminal from './PosTerminal';
@@ -43,6 +45,7 @@ function measureFlight(slot, pad) {
 }
 
 export default function CardSimulator({ onSettled }) {
+  const demo = useDemo();
   const reduced = useReducedMotion() === true;
   const [wallets, setWallets] = useState([]);
   const [online, setOnline] = useState(null);
@@ -154,10 +157,11 @@ export default function CardSimulator({ onSettled }) {
   }
 
   async function runPayment(lab) {
-    if (lab === 'replay') return authoriseTap(proof);
+    const merchantRef = (lab && proof?.merchantRef) || demo.merchant.ref;
+    if (lab === 'replay') return authoriseTap(proof, merchantRef);
     if (lab === 'tamper') {
       const nextAmount = (Math.round((Number(proof.amount) + 25) * 100) / 100).toFixed(2);
-      return authoriseTap({ ...proof, amount: nextAmount });
+      return authoriseTap({ ...proof, amount: nextAmount }, merchantRef);
     }
     const issued = await issueCryptogram({
       token: selected.token,
@@ -171,12 +175,13 @@ export default function CardSimulator({ onSettled }) {
       atc: issued.atc,
       nonce: issued.nonce,
       cryptogram: issued.cryptogram,
+      merchantRef,
     };
     setProof(nextProof);
     return authoriseTap({
       ...nextProof,
       pin: showPin ? pin : undefined,
-    });
+    }, merchantRef);
   }
 
   async function startAuthorisation(lab) {
@@ -253,6 +258,7 @@ export default function CardSimulator({ onSettled }) {
       if (result.ok) {
         setPin('');
         setPinPrompt(false);
+        if (result.data?.currency === 'ZMW') demo.refreshMerchants();
       }
 
       setReceipt(result);
@@ -329,6 +335,7 @@ export default function CardSimulator({ onSettled }) {
         labEnabled={Boolean(proof) && !busy}
         onReplay={() => startAuthorisation('replay')}
         onTamper={() => startAuthorisation('tamper')}
+        merchant={demo.merchant}
       />
 
       <form className="panel controls" onSubmit={onSubmit}>
@@ -343,6 +350,14 @@ export default function CardSimulator({ onSettled }) {
               This card is locked after repeated PIN failures. Restart the API to clear the classroom wallet.
             </p>
           )}
+
+          <MerchantPicker variant="classroom" disabled={phase !== 'idle'} />
+          <details className="till-help">
+            <summary>How this till works</summary>
+            <p>
+              Pick a shop, a card, and an amount, then Tap to Pay. Kwacha taps credit that shop. Dollar and franc taps stay on the card. Over the contactless limit, enter the classroom PIN shown below. After a tap, Replay and Change the amount resend the last code.
+            </p>
+          </details>
 
           <div className="field-label-row">
             <p id="card-picker-label">Card</p>

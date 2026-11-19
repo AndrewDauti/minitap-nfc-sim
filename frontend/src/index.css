@@ -890,6 +890,18 @@ label, .field-label-row p, .section-head h2 {
     scroll-snap-align: start;
   }
 
+  .shop-picker-row {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+
+  .shop-picker-row button {
+    min-width: 168px;
+    flex: 1 0 168px;
+    scroll-snap-align: start;
+  }
+
   .terminal-wrap { width: min(320px, 100%); max-width: 320px; }
 }
 
@@ -920,6 +932,71 @@ label, .field-label-row p, .section-head h2 {
   border-color: rgba(61, 220, 151, 0.85);
   font-weight: 700;
 }
+
+.shop-picker { margin-bottom: 14px; }
+.shop-picker .picker-head p { color: var(--muted); }
+.shop-picker .picker-help { margin: 8px 0 0; color: var(--muted); font-size: 0.85rem; }
+.shop-picker .hint-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  cursor: pointer;
+}
+.shop-picker .hint-pop {
+  position: absolute;
+  z-index: 6;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(280px, 70vw);
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f4f7fb;
+  color: #111814;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.shop-picker-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.shop-picker-row button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 88px;
+  padding: 10px;
+  text-align: left;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+.shop-picker-row button[aria-checked='true'] {
+  border-color: rgba(61, 220, 151, 0.9);
+  background: rgba(61, 220, 151, 0.12);
+}
+.shop-picker-row button:disabled { cursor: default; opacity: 0.6; }
+.shop-picker .merchant-kicker { color: var(--green); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.shop-picker strong { font-size: 0.92rem; }
+.shop-picker-row span,
+.shop-picker-row em { color: var(--muted); font-style: normal; font-size: 0.75rem; }
+
+.till-help { margin: 0 0 14px; }
+.till-help summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+}
+.till-help p { margin: 8px 0 0; color: var(--muted); line-height: 1.45; }
 
 .classroom-pin {
   margin: 12px 0 14px;

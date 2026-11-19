@@ -89,6 +89,14 @@ export const STAGES = [
     kicker: '11 · Sync',
     title: 'Replay and tamper checks run again at sync',
     accent: '#ff9b7a',
-    body: 'When the network returns, the queue is uploaded. The server checks the signature, the spend code, the counter, and the remaining allowance. A copied token is blocked as a replay. An edited amount fails the spend code. A clean sale settles to the trader. The customer sees a simulated SMS, not a live message.',
+    body: 'When the network returns, the queue is uploaded. The server checks the signature, the spend code, the counter, and the remaining allowance. A copied token is blocked as a replay. An edited amount fails the spend code. A clean sale settles to the shop that took it. The customer sees a simulated SMS, not a live message.',
+  },
+  {
+    id: 'merchant-binding',
+    nav: 'Merchant',
+    kicker: '12 · Merchant',
+    title: 'A sale stays with the shop that took it',
+    accent: '#8fd8ff',
+    body: 'The spend code covers the shop as well as the amount. Mutale Store, Bwalya Pharmacy, and Tembo Coach each have a till pass of their own. A sale taken at one shop settles to that shop. Sending the same token to another shop is blocked, and the money does not move.',
   },
 ];

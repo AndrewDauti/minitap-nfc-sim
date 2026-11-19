@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import CardSimulator from './components/CardSimulator';
 import SecurityStory from './components/SecurityStory';
 import TransactionHistory from './components/TransactionHistory';
 import BooksView from './demo/BooksView';
+import Coach, { COACH_KEY } from './demo/Coach';
 import { DemoProvider, useDemo } from './demo/DemoContext';
+import MerchantPicker, { DemoStatus } from './demo/MerchantPicker';
+import Hint from './demo/Hint';
 import PartnerView from './demo/PartnerView';
 import SaleView from './demo/SaleView';
 import './demo.css';
@@ -21,7 +24,36 @@ function AppShell() {
   const demo = useDemo();
   const [view, setView] = useState('sale');
   const [revision, setRevision] = useState(0);
+  const [tipsOpen, setTipsOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem(COACH_KEY) !== 'done';
+    } catch {
+      return true;
+    }
+  });
+  const [tipStep, setTipStep] = useState(0);
+  const tipsButtonRef = useRef(null);
   const demoView = view === 'sale' || view === 'books' || view === 'network';
+
+  function closeTips() {
+    try {
+      window.localStorage.setItem(COACH_KEY, 'done');
+    } catch {
+      // Tips still close for this render if storage is blocked.
+    }
+    setTipsOpen(false);
+    window.setTimeout(() => tipsButtonRef.current?.focus(), 0);
+  }
+
+  function replayTips() {
+    try {
+      window.localStorage.removeItem(COACH_KEY);
+    } catch {
+      // Opening the tips does not depend on storage.
+    }
+    setTipStep(0);
+    setTipsOpen(true);
+  }
 
   useEffect(() => {
     document.title = TITLES[view] || TITLES.sale;
@@ -75,7 +107,7 @@ function AppShell() {
           </nav>
           {demoView ? (
             <div className="top-tools">
-              <div className="net-toggle" role="group" aria-label="Network">
+              <div className="net-toggle" role="group" aria-label="Network" aria-describedby="network-help">
                 <span>Network</span>
                 <button type="button" aria-pressed={demo.network === 'online'} onClick={() => demo.setNetwork('online')}>
                   Online
@@ -84,11 +116,35 @@ function AppShell() {
                   Offline
                 </button>
               </div>
+              <Hint label="the network toggle">
+                Offline keeps the sale on this phone. Online signs the allowance and sends saved sales to the shop that took them.
+              </Hint>
+              <p id="network-help" className="sr-only">
+                Offline keeps the sale on this phone. Online signs tokens and syncs the queue.
+              </p>
+              <button
+                ref={tipsButtonRef}
+                type="button"
+                className="tips-btn"
+                aria-pressed={tipsOpen}
+                onClick={() => (tipsOpen ? closeTips() : replayTips())}
+              >
+                {tipsOpen ? 'Hide tips' : 'Show tips'}
+              </button>
             </div>
           ) : (
             <p className="locale">Lusaka · ZMW · USD · CHF</p>
           )}
         </header>
+        {demoView && (
+          <>
+            <DemoStatus />
+            {tipsOpen && (
+              <Coach step={tipStep} onStep={setTipStep} onClose={closeTips} />
+            )}
+            <MerchantPicker />
+          </>
+        )}
         {view === 'sale' && <SaleView />}
         {view === 'books' && <BooksView />}
         {view === 'network' && <PartnerView />}

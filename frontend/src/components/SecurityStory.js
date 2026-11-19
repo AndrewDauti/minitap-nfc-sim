@@ -174,7 +174,7 @@ export default function SecurityStory({ onBack }) {
         <h1 id="story-title" tabIndex={-1}>How your tap stays safe</h1>
           <p className="story-lede">
           A tap feels instant. Under it, the till and the bank run a series of checks before any money moves.
-          This page walks through the checks MiniTap actually runs, including the offline allowance, the signed tokens, and the checks that run again when a queue syncs.
+          This page walks through the checks MiniTap actually runs, including the offline allowance, the signed tokens, the merchant binding, and the checks that run again when a queue syncs.
           It is a classroom model of how payments are protected, not the cryptography a bank would ship.
         </p>
         {!reduced && (
@@ -316,7 +316,7 @@ export default function SecurityStory({ onBack }) {
             : 'Scroll up and the scene reverses with you. Above this section and below it, the page scrolls in the usual way.'}
         </p>
         <p>
-          On the sale screen, set aside an allowance while the network is on, switch it off, and take a payment. The till checks the signature on the phone. Switch the network on and the queue syncs. Replay, a changed amount, and a rolled-back counter are refused.
+          On the sale screen, pick a shop, set aside an allowance while the network is on, switch it off, and take a payment. The till checks the signature on the phone. Switch the network on and the queue syncs to that shop. Replay, a changed amount, a rolled-back counter, and a sale sent to another shop are refused.
         </p>
         <p>
           On the classroom till, the PIN is shown under the card you pick. Pay, then open the security trace. Replay the last code, or resend it with a changed amount, and read the decline.
